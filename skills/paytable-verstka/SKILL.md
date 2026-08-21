@@ -42,13 +42,30 @@ NOT by cloning a whole donor prefab and mutating it (the old, brittle model).
   from (e.g. a `digginbroscache` bundle containing a file literally named
   `PaytableDialogRedFortune.prefab`) — it is not necessarily even about the right game. Never open,
   edit, rename, or delete it. Build the real thing as a brand-new file next to it (see Phase 0).
-- **Library architecture:** the reusable block library (shells + blocks) is its own Unity Package,
-  today embedded at `Packages/com.cgs.paytablelibrary/` inside Konami-Slots (same pattern as
-  `Packages/com.coplaydev.unity-mcp` — Unity auto-discovers any folder under `Packages/` that has a
-  `package.json`, no `manifest.json` entry needed). Long-term this becomes a real external git repo
-  referenced via a git URL in `manifest.json`; the internal folder layout (`Shells/`, `Blocks/`,
-  `BLOCKS.md`) stays the same either way — always resolve paths by walking to the package folder by
-  name, never hardcode an absolute path.
+- **Repo & library architecture:** everything for this pipeline lives in ONE repo,
+  `paytable-verstka` (`Documents/Unity/paytable-verstka/` on this machine — resolve by walking to it,
+  never hardcode that this exact path exists on every machine):
+  ```
+  paytable-verstka/
+  ├── skills/
+  │   ├── paytable-pipeline/    (extraction — its own SKILL.md + scripts/)
+  │   ├── cgs-atlas-builder/    (sprite atlas — its own SKILL.md + scripts/)
+  │   └── paytable-verstka/     (this skill's own SKILL.md + reference/)
+  └── library/                   (the Unity Package, com.cgs.paytablelibrary — see below)
+  ```
+  Each `skills/<name>/` is independently symlinked into wherever Claude Code loads skills from on
+  each machine, so all three stay separately invocable ("скачай пейтейбл" still only runs
+  extraction) even though they share one repo and one library.
+  `library/` is a real Unity Package (`package.json` at its root, name `com.cgs.paytablelibrary`).
+  A consuming Unity project references it via a `file:` entry in that project's
+  `Packages/manifest.json`:
+  ```json
+  "com.cgs.paytablelibrary": "file:/absolute/path/to/paytable-verstka/library"
+  ```
+  — resolved live from the repo, no copy step, no drift between what you edit and what Unity uses.
+  (An embedded-copy-inside-`Packages/` variant also works if a project prefers that — same
+  `package.json` discovery Unity already does for e.g. `com.coplaydev.unity-mcp` — but the `file:`
+  form is what this pipeline assumes unless told otherwise.) Internal layout:
   - `Shells/PaytableDialog_GEL.prefab`, `Shells/PaytableDialog_MCF.prefab` — empty dialog shells
     (slider + indicator + nav, `cards: []`, no pages). Don't rename these without being asked — a
     `.prefab` renamed without its `.meta` desyncs the GUID; if renaming is ever needed, do it inside
@@ -56,6 +73,9 @@ NOT by cloning a whole donor prefab and mutating it (the old, brittle model).
   - `Blocks/` — atomic block prefabs (`Page_1`, `Text`, `ImageContainer`, `GoldBox`, `GoldBoxRow`,
     `PayBlock` — see "Block library reference" below). `BLOCKS.md` in the package root = the
     per-block content-slot manifest.
+  - `Editor/` — real C# utilities (`PaytableGridMath`, `PaytablePayBlock`, `PaytableAtlasBuilder`),
+    not prose to re-derive each run — call these, don't reimplement them. See "Block library
+    reference" below.
   - Common assets (page background, fonts) are NOT duplicated into the library or into each game's
     own bundle — blocks reference whatever already exists in the project (e.g. shared UI assets), to
     avoid cross-bundle asset duplication in the AssetBundle/Addressables pipeline.
@@ -149,15 +169,17 @@ Write the mapping to `_verstka/block_mapping.md`.
 2. Ask the user to provide/confirm PNGs — never fabricate art. Art file-naming conventions vary per
    game (see Portability) — visually confirm each mapping (open the file, compare to the reference),
    don't assume from filename alone.
-3. Run `cgs-atlas-builder` → atlas PNG/JSON, TMP Sprite Asset, material, hashes from Unity runtime,
-   `UpdateLookupTables()`. Verify: `GetSpriteIndexFromName ≥ 0`, `spriteCharacterTable.Count > 0`,
-   `spriteSheet != null`, `material.mainTexture != null`.
-4. **New step (proven in practice):** build `TextureImporter.spritesheet` (a `SpriteMetaData[]`) from
-   the SAME rectangles already written into the TMP `spriteGlyphTable` (no separate JSON needed — the
-   glyph table already has `glyphRect` per symbol name), set `spriteImportMode = Multiple`, then
-   `SaveAndReimport()`. This slices the SAME atlas texture into individually-addressable Sprite
-   sub-assets — usable in a plain `Image.sprite` — with zero texture duplication. Verify by
-   `AssetDatabase.LoadAllAssetsAtPath` returning one `Sprite` per symbol name.
+3. Run `cgs-atlas-builder` — its Unity-side steps are real code now, not re-typed each run: the
+   `CGS.PaytableLibrary.PaytableAtlasBuilder` static class (`library/Editor/PaytableAtlasBuilder.cs`,
+   same package as everything else in "Block library reference" below) does material creation,
+   correct-hash lookup, direct-YAML table writing, final import + the 4-point verification
+   (`GetSpriteIndexFromName ≥ 0`, `spriteCharacterTable.Count > 0`, `spriteSheet != null`,
+   `material.mainTexture != null` — it throws if any fails), and sub-sprite slicing, all as callable
+   methods. See `skills/cgs-atlas-builder/SKILL.md` for the exact call sequence.
+4. Sub-sprite slicing (`PaytableAtlasBuilder.SliceIntoSubSprites`) — builds a `TextureImporter`
+   sprite sheet from the SAME rectangles already in the TMP `spriteGlyphTable`, giving
+   individually-addressable Sprite sub-assets usable in a plain `Image.sprite`, with zero texture
+   duplication.
 
 ### Phase 5 — Assemble  (CORE — sequential, single Unity instance, inline QA)
 > **CRITICAL: ALL prefab stage operations — open, add pages, fill content, register slider, save — MUST
@@ -178,34 +200,41 @@ Write the mapping to `_verstka/block_mapping.md`.
    area only, not the whole card/screenshot with background) and multiply by 1440. Recompute per
    image, never reuse a number from a different page.
 
-   **b) PIC/Card pays page:** count symbols `n` → `rows = ceil(n/3)`, distribute `n` across rows as
-   evenly as possible with the larger remainder in earlier rows, never an orphan single-item last row
-   (4→2+2, 5→3+2, 6→3+3 — this generalizes past 6 too). Do NOT use a `GridLayoutGroup` — with a fixed
-   column cap it wraps the remainder onto its own row (4 at cap-3 gives 3+1, not the 2+2 we want);
-   instead build explicit `GoldBoxRow` containers, one per row, and put the exact planned cell count
-   into each. Body is 1410×1440; sizing (symmetric — 50 at every edge and between cells, whether width
-   or height):
+   **b) PIC/Card pays page:** count symbols `n`, then call the library's own math instead of
+   re-deriving it — `CGS.PaytableLibrary.PaytableGridMath` (`library/Editor/PaytableGridMath.cs`):
+   ```csharp
+   using CGS.PaytableLibrary;
+   int[] dist = PaytableGridMath.DistributeRows(n);              // e.g. 5 -> [3,2]
+   int maxCols = dist.Max();
+   var size = PaytableGridMath.ComputeCellSize(dist.Length, maxCols);
+   // size.widthCell, size.heightCell, size.rowHeight
    ```
-   width_cell  = 1360/maxCols - 50            // maxCols = widest row on this page
-   height_cell = (1340 - 50×(rows-1)) / rows
-   row_height  = height_cell + 50
+   Do NOT use a `GridLayoutGroup` — with a fixed column cap it wraps the remainder onto its own row
+   (4 at cap-3 gives 3+1, not the 2+2 `DistributeRows` gives you); build explicit `GoldBoxRow`
+   containers instead, one per row, with the exact planned cell count in each. Set each
+   `GoldBoxRow`'s height to `size.rowHeight`; set each `GoldBox`'s size to `(size.widthCell,
+   size.heightCell)`. Row width needs no manual sizing — `Body`'s own layout force-expands it.
+   Inside each `GoldBox`: `ImageContainer` (height = `size.heightCell/2`, hero symbol as an `Image`
+   with its sliced sub-sprite) + `PayBlock` (height = `size.heightCell/2` — always exactly half,
+   never a fixed number). Fill `PayBlock.Count`/`PayBlock.Pay` via
+   `CGS.PaytableLibrary.PaytablePayBlock` (`library/Editor/PaytablePayBlock.cs`):
+   ```csharp
+   countText.text = PaytablePayBlock.FormatCount(new[]{"5","4","3","2"});
+   payText.text   = PaytablePayBlock.FormatPay(new[]{"100","60","30","2"});
+   // or the int overload: PaytablePayBlock.FormatPay(new[]{100,60,30,2})
    ```
-   Set each `GoldBoxRow`'s height to `row_height`; set each `GoldBox`'s size to
-   `(width_cell, height_cell)`. Row width needs no manual sizing — `Body`'s own layout force-expands
-   it. Inside each `GoldBox`: `ImageContainer` (height = `height_cell/2`, hero symbol as an `Image`
-   with its sliced sub-sprite) + `PayBlock` (height = `height_cell/2` — always exactly half, never a
-   fixed number). `PayBlock.Count` = one multi-line TMP text, first line BLANK (aligns with "1 credit"
-   on the Pay side), remaining lines are the count numbers, all wrapped in one `<color=green>` tag
-   (not the component's default font color). `PayBlock.Pay` = one multi-line TMP text, first line
-   ALWAYS `"1 credit"` (we add it — see Core mental model), remaining lines are the pay values (with
-   any bonus suffix like `"(+N FREE GAMES)"` kept in the SAME line, same column) wrapped in one
-   `<color=yellow>` tag spanning all of them. The row count per symbol comes from `win_tables.yaml`
-   — never a fixed template (a symbol paying 5/4/3/2 next to one paying only 5/4/3 is normal).
+   This handles the blank-first-Count-line / always-"1 credit"-first-Pay-line / single-color-tag
+   rules for you — see `library/BLOCKS.md` if you need the reasoning, not just the call. The row
+   count per symbol comes from `win_tables.yaml` — never a fixed template (a symbol paying 5/4/3/2
+   next to one paying only 5/4/3 is normal; bonus suffixes like `"(+N FREE GAMES)"` stay on the
+   same line/column as their number, just include them in the string you pass in).
 
    **c) Substitute/Scatter/Trigger/jackpot-badge page — "unique complex page" pattern:** don't build a
    clever horizontal composite; stack independent blocks vertically in `Body`, same as any other page:
    - `PayRow`: the hero image(s) + a `PayBlock`, ALWAYS one horizontal row (even with 2-3 hero images
-     side by side, e.g. green-wild/WILD-burst/red-wild sharing one pay table).
+     side by side, e.g. green-wild/WILD-burst/red-wild sharing one pay table). Fill this `PayBlock`
+     via `PaytablePayBlock.FormatCount`/`FormatPay` too, same as 5b — it's the same convention
+     regardless of whether the PayBlock sits in a grid cell or a panel.
    - If the reference shows a visible bordered panel around this content (e.g. "SCATTER"/"TRIGGER"
      boxes) — wrap the PayRow + any extra text in a `GoldBox` used purely as a decorative panel (not a
      grid cell), with its own internal label `Text` object (e.g. "SCATTER") acting as a mini-header.
@@ -296,6 +325,15 @@ Lives in the block library package (`Blocks/`), documented per-block in that pac
   explicitly per the grid formula.
 - `PayBlock.prefab` — `Count` + `Pay`, two independent multi-line TMP texts (not one shared text),
   colored via inline `<color>` tags on the whole run of lines, not per-component default color.
+
+**`Editor/` (real C# utilities, not prose — call these instead of re-deriving anything):**
+- `PaytableGridMath.cs` (`CGS.PaytableLibrary.PaytableGridMath`) — `DistributeRows(n)`,
+  `ComputeCellSize(rows, maxCols)`. The PIC/Card grid math above.
+- `PaytablePayBlock.cs` (`CGS.PaytableLibrary.PaytablePayBlock`) — `FormatCount(...)`,
+  `FormatPay(...)`. The `PayBlock.Count`/`Pay` filling rules above.
+- `PaytableAtlasBuilder.cs` (`CGS.PaytableLibrary.PaytableAtlasBuilder`) — the Unity-side half of
+  `cgs-atlas-builder` (material, hashes, YAML table writing, import+verify, sub-sprite slicing).
+  See `skills/cgs-atlas-builder/SKILL.md`.
 
 ## Known gotchas
 | Problem | Fix |
