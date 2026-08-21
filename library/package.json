@@ -1,0 +1,17 @@
+{
+  "name": "com.cgs.paytablelibrary",
+  "version": "0.1.0",
+  "displayName": "CGS Paytable Library",
+  "description": "Reusable shell + block prefab library for assembling Konami/GEL and MCF slot paytable dialogs (used by the paytable-verstka pipeline). Contains empty page shells (Shells/) and atomic content blocks (Blocks/) that get cloned and assembled per game — never edited in place.",
+  "unity": "2021.3",
+  "keywords": [
+    "paytable",
+    "konami",
+    "gel",
+    "mcf",
+    "ui"
+  ],
+  "author": {
+    "name": "CGS"
+  }
+}
