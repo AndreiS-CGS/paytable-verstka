@@ -93,10 +93,12 @@ browser_cookie3` and `import PIL`.
 - Verify by actually running an extraction against a real GDD URL once everything else is set up —
   don't declare this step done on config alone.
 
-## 8. Optional: OPENROUTER_API_KEY
-Only affects text-cleaning quality in `paytable-pipeline` (strips struck-out text / editorial notes
-via an LLM instead of regex). Not required — the pipeline works without it, just slightly cruder
-cleanup. Mention it exists; don't block on it, don't ask for a key unless they bring it up.
+## 8. OPENROUTER_API_KEY — not needed, skip this entirely
+`paytable-pipeline`'s script has an LLM-cleaning step that calls OpenRouter if this key is set,
+otherwise it falls back to a cruder regex clean. But since YOU (the agent running the skill) are
+already an LLM in the loop, just do that cleaning pass yourself when the skill calls for it — see
+`skills/paytable-pipeline/SKILL.md` Step 2. Don't ask the human for this key; there's no reason to
+pay for a second LLM call for something you can already do inline.
 
 ## 9. Final smoke test
 Once steps 1-6 are done, confirm the whole chain works end to end:

@@ -53,6 +53,16 @@ Where `<skill_dir>` is the directory containing this SKILL.md file.
 
 Output directory should be expanded (`~` → full path). Use `os.path.expanduser` or pass the full path.
 
+**No `OPENROUTER_API_KEY`? Do the cleaning pass yourself instead of settling for the regex fallback.**
+The script's LLM-clean step is just: strip `<del>...</del>` (struck-out) text and editorial notes
+("Note:", "Please add this text:", etc.) out of the full `Paytable.md`, collapsing leftover blank
+lines, while preserving every payout value/symbol/heading/table exactly. You (the agent running this
+skill) can do that same pass directly — read `<GameName> Paytable.md`, produce
+`<GameName> Paytable Clean.md` with those rules applied, and skip calling out to OpenRouter entirely.
+There's no reason to pay for a second LLM call for a job you can already do inline; only fall back to
+the script's regex clean if you're running this step in a context where you can't read/write the
+files yourself (e.g. a detached background script with no agent loop attached).
+
 ### Step 3 — Report results
 
 After the script finishes, tell the user:
@@ -78,7 +88,9 @@ One-time setup per machine (no code edits — everything is env-overridable):
    - `CHROME_PROFILE="Profile 3"` (your profile name), OR `CHROME_COOKIE_FILE=/full/path/to/Cookies`.
      If unset, the script auto-detects the first Chrome profile that has a Cookies DB.
    - Optional PAT auth: `CONFLUENCE_EMAIL=you@…` + token at `~/.confluence_pat` (or `CONFLUENCE_PAT_FILE`).
-   - Optional `OPENROUTER_API_KEY` for LLM cleaning; otherwise a regex clean is used.
+   - Optional `OPENROUTER_API_KEY` for the script's own LLM cleaning; otherwise it falls back to
+     regex. Since this skill runs inside an agent loop anyway, prefer having the agent do the
+     cleaning pass itself instead (see Step 2) — no key needed for that.
 
 Notes: macOS Chrome paths by default — set `CHROME_COOKIE_FILE` explicitly on other OSes/browsers.
 No `/Users/<name>/…` is hardcoded; defaults fall back to Andrei's values only when env is unset, so his
