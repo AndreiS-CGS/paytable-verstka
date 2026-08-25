@@ -113,8 +113,12 @@ $@"  - m_ElementType: 0
 ");
             }
 
-            content = Regex.Replace(content, @"  m_SpriteGlyphTable: \[\]",
-                "  m_SpriteGlyphTable:\n" + glyphYaml.ToString().TrimEnd());
+            // Field name varies by Unity/TMP version: newer TMP serializes the glyph list as
+            // "m_GlyphTable", older ones as "m_SpriteGlyphTable" — match whichever is present
+            // rather than assuming one.
+            string glyphField = Regex.IsMatch(content, @"  m_SpriteGlyphTable: \[\]") ? "m_SpriteGlyphTable" : "m_GlyphTable";
+            content = Regex.Replace(content, $@"  {glyphField}: \[\]",
+                $"  {glyphField}:\n" + glyphYaml.ToString().TrimEnd());
             content = Regex.Replace(content, @"  m_SpriteCharacterTable: \[\]",
                 "  m_SpriteCharacterTable:\n" + charYaml.ToString().TrimEnd());
             File.WriteAllText(assetPath, content);

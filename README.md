@@ -4,6 +4,10 @@ Self-contained repo for the CGS/Konami slot-paytable pipeline: three Claude Code
 together take a Confluence GDD link to a finished `PaytableDialog<Game>` Unity prefab, plus the
 reusable Unity block library they assemble it from.
 
+**Setting this up on a new machine?** Point your Claude Code agent at **[SETUP.md](SETUP.md)** and
+have it work through that checklist — it's written as instructions for an agent to execute, not a
+human to read and translate into commands.
+
 ## Contents
 ```
 skills/
