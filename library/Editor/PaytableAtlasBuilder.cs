@@ -77,13 +77,17 @@ namespace CGS.PaytableLibrary
             for (int i = 0; i < sprites.Length; i++)
             {
                 var sp = sprites[i];
+                // bearingY = half the glyph height, NOT the full height: that centres the sprite on
+                // the baseline, which is what makes the vertical nudge one constant per font instead
+                // of a value that has to be recomputed for every <size=P%>. See cgs-atlas-builder's
+                // SKILL.md → "Формулы".
                 glyphYaml.Append(
 $@"  - m_Index: {i}
     m_Metrics:
       m_Width: {sp.w}
       m_Height: {sp.h}
       m_HorizontalBearingX: 0
-      m_HorizontalBearingY: {sp.h}
+      m_HorizontalBearingY: {sp.h / 2f}
       m_HorizontalAdvance: {sp.w}
     m_GlyphRect:
       m_X: {sp.x}
@@ -103,11 +107,15 @@ $@"  - m_Index: {i}
                 var sp = sprites[i];
                 if (!hashes.TryGetValue(sp.name, out var hash))
                     throw new Exception($"No hash provided for symbol '{sp.name}' — call GetHashCodes first and include every name.");
+                // character m_Scale MUST be 1. It multiplies into the sprite's rendered size, so any
+                // other value silently scales every sprite by that factor and breaks
+                // spriteHeight = fontSize × P/100. Per-use sizing belongs in a <size=P%> tag, never
+                // baked into the asset.
                 charYaml.Append(
 $@"  - m_ElementType: 0
     m_Unicode: 65534
     m_GlyphIndex: {i}
-    m_Scale: 30
+    m_Scale: 1
     m_Name: {sp.name}
     m_HashCode: {hash}
 ");

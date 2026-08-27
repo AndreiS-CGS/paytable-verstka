@@ -6,8 +6,13 @@ Usage:
   python3 process_pngs.py <src_folder> [options]
 
 Reads all *.png in <src_folder>, crops each to its alpha bounding box, resizes proportionally to
---height (or --small-height for names listed in --small-height-names), writes the result into
-<src_folder>_<height>/ (siblings of the source folder, never overwriting it).
+--height, and writes the result into <src_folder>_<height>/ (a sibling of the source folder, never
+overwriting it).
+
+EVERY sprite gets the same height. That uniformity is what makes the sprite font standard work
+(glyph.height == faceInfo.pointSize, so spriteHeight = fontSize x P/100); per-use sizing belongs in
+a <size=P%> tag at the point of use, never in the atlas. The --small-height* options below exist
+only to reproduce an older two-tier atlas and default to OFF.
 """
 import argparse
 import os
@@ -19,10 +24,12 @@ def main():
     parser.add_argument("src_folder", nargs="?", default=os.environ.get("ATLAS_SRC"),
                          help="Folder of source PNGs. Falls back to the ATLAS_SRC env var.")
     parser.add_argument("--height", type=int, default=128)
-    parser.add_argument("--small-height", type=int, default=100)
-    parser.add_argument("--small-height-names", default="grand,major,mini,minor",
-                         help="Comma-separated lowercase names that use --small-height instead of --height "
-                              "(e.g. jackpot badges that render smaller than regular symbols)")
+    parser.add_argument("--small-height", type=int, default=100,
+                         help="DEPRECATED. Only used when --small-height-names is non-empty.")
+    parser.add_argument("--small-height-names", default="",
+                         help="DEPRECATED, empty by default. Names listed here are resized to "
+                              "--small-height instead of --height, which breaks the uniform-height "
+                              "standard. Kept only for rebuilding an older two-tier atlas.")
     parser.add_argument("--alpha-threshold", type=int, default=127)
     args = parser.parse_args()
 
