@@ -546,9 +546,40 @@ it carries the real sizes and layout settings, read off the prefabs. Summary onl
 ## Reference docs (in this skill's `reference/`)
 - `SCHEMA.md` — **the format of `blocks.yaml` / `win_tables.yaml` / `symbols.yaml`**, the files
   Phase 2 writes and Phase 5 consumes. Read it before writing any of them.
-- `legacy_page_taxonomy.md` — historical page-type catalog (24-game corpus). Superseded in structure
-  by the dynamic block system above, but still useful background on what page TYPES recur across games.
-- `donor_catalog.md` / `guardiansofgiza_catalog.md` — historical GEL/MCF donor structures from the old
-  clone-and-mutate model. Kept for historical reference only — do not use as a basis for new work.
 - The block library itself (`Shells/`, `Blocks/`, `BLOCKS.md`) lives in the `com.cgs.paytablelibrary`
   package, not in this skill folder.
+
+The three donor/taxonomy catalogues that used to sit here were deleted once the block library
+replaced the clone-and-mutate model — their block vocabularies (`GoldBox_Special`, `PayBox1`,
+`SymbolBox_<NAME>`, `line1`, `Frame_1`) described other games' prefabs and had started to mislead.
+Recover them from git history if ever needed. What was still true is kept below.
+
+## Salvaged from the donor corpus
+Surveyed 24 recent games, ~380 GDD paytable images, across six mechanic families (lines, ways,
+hold&spin/bank, link-jackpot, cluster, bull-blitz).
+
+**There is one canonical paytable structure.** The page TYPES are the same ~10 in every family; a
+different mechanic shows up as different feature-rules TEXT, not as a new page layout. This is why a
+small finite block library covers essentially every game — and why an unfamiliar mechanic is not a
+reason to invent a block.
+
+**Three blocks that look necessary and are not.** Each was proposed, then disproved against the
+corpus:
+- *Numeric jackpot ladder* — does not exist. "Available Jackpots" is badges stacked in a panel with
+  no numbers, because jackpot values scale with bet and are never printed.
+- *Hold&spin coin-value grid* — not a block. Coin prizes are ordinary feature-rules text, and the
+  numbers themselves are baked into the coin symbol ART.
+- *Feature mini-grid* (ingot / collection) — a plain two-column table, just with more rows.
+
+**Art sourcing priority.** `HP_` stands for Help Page: purpose-built paytable renders (`HP_Wild`,
+`HP_Scatter`, `HP_JPGrand`) and the preferred source for the sprite atlas. PIC and card symbols
+usually have no `HP_` render — fall back to the reel-symbol static frames (`S_PicA`, `S_CardK`,
+`S_Symbol_<NAME>` and similar). Conventions vary per game, so confirm visually either way.
+
+**The calibrated constants are font-specific.** `voffset=5.11em`, the 52-unit line base, the 34.3-unit
+cap height and therefore every `line-height` value assume `Comfortaa-Bold Edited SDF`
+(guid `354741b32dc5f4b0fa48c8b1e39ea7e8`), which is what the library's `TextBlock` uses. A different
+font invalidates all of them — re-derive rather than carry them over.
+
+**Landscape is not covered.** Both shells host the same 1410×1440 portrait page blueprint; no
+landscape page geometry exists in the library. Deferred until a landscape game actually needs it.
