@@ -131,8 +131,9 @@ magenta placeholder, a reported mismatch, an extra page — over one that silent
   Extraction already numbers `PageN.jpg` by GDD order, so the files line up as-is.
 
   Confirmed as a hard rule, so do not weigh the counter against the text and do not ask:
-  - The counter is measurably from a different paytable. On one game it read `PAGE X/16` while the
-    build came to 29 pages — a different page inventory entirely, so its numbering cannot transfer.
+  - The counter is measurably from a different paytable. Its `/Y` total has been seen to disagree
+    with the built page count by a wide margin — a different page inventory entirely, so the
+    numbering cannot transfer. Compare the two before trusting any of it.
   - There is no house convention to fall back on. Across 60 shipped paytable prefabs, 42 put the
     rules pages first and 18 put Pay Table first. Neither order is "how we do it", which is exactly
     why the GDD text is the only authority.
@@ -174,8 +175,9 @@ magenta placeholder, a reported mismatch, an extra page — over one that silent
 
   `P = 100 × R × capLine_em / 1.5`, where `R` is the ratio measured on the GDD render. **The final
   division is required** — the GDD ratio does not carry over one-to-one and feeding `R` in straight
-  comes out too large. The divisor is 1.5, not 2: at 2 a wide badge (`GRAND_JACKPOT` is 1423×128,
-  an 11:1 aspect) shrank to 28% of its atlas size and the lettering inside stopped being legible.
+  comes out too large. The divisor is 1.5, not 2: at 2 a wide jackpot logo — these run to about 11:1
+  once normalised to the atlas height — shrank to under a third of its atlas size and the lettering
+  inside stopped being legible.
 
   **Both classes take the same 1.5 — settled on rendered pages, do not re-derive it.** Divisor 2 was
   tried first and rejected on legibility; 1.5 was then checked on a badge page and a symbol-art page
@@ -555,8 +557,8 @@ replaced the clone-and-mutate model — their block vocabularies (`GoldBox_Speci
 Recover them from git history if ever needed. What was still true is kept below.
 
 ## Salvaged from the donor corpus
-Surveyed 24 recent games, ~380 GDD paytable images, across six mechanic families (lines, ways,
-hold&spin/bank, link-jackpot, cluster, bull-blitz).
+Surveyed 24 recent games, ~380 GDD paytable images, across every mechanic family in the catalogue
+(lines, ways, hold&spin/bank, link-jackpot, cluster and others).
 
 **There is one canonical paytable structure.** The page TYPES are the same ~10 in every family; a
 different mechanic shows up as different feature-rules TEXT, not as a new page layout. This is why a
