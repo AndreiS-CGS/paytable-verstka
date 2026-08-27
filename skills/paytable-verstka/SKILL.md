@@ -152,15 +152,19 @@ magenta placeholder, a reported mismatch, an extra page — over one that silent
   Without a tag `P` is 100, which renders the sprite exactly one cap-height tall — three to five
   times smaller than any reference, and sitting on the baseline instead of centred on the line. Emit:
   ```
-  <voffset=5.11em><size=500%><sprite name="SYMBOL"></size></voffset>
+  <voffset=5.11em><size=250%><sprite name="SYMBOL"></size></voffset>
   ```
   **`voffset` goes OUTSIDE `size`** — inside, TMP multiplies it by the *scaled* font size and the
   correction moves with `P`.
   **Two size classes, measured off the references** (cap height 11 px there):
   | Class | In the reference | P at fontSize 32 |
   |---|---|---|
-  | Symbol art — the normal case | 48–60 px, ≈5× cap | **500%** |
-  | Jackpot badge / logo — wide and flat | 24 px, ≈2.2× cap | **225%** |
+  | Symbol art — the normal case | 48–60 px, ≈5× cap | **250%** |
+  | Jackpot badge / logo — wide and flat | 24 px, ≈2.2× cap | **112%** |
+
+  `P = 100 × R × capLine_em / 2`, where `R` is the ratio measured on the GDD render. **The final
+  halving is required** — the GDD ratio does not carry over one-to-one, and feeding `R` in straight
+  comes out twice too large.
 
   Height holds within a class regardless of the art's proportions: a narrow tall stick of dynamite
   and a wide flat sign render the same height. Apparent size differences between them come from the
@@ -358,9 +362,9 @@ Write the mapping to `_verstka/block_mapping.md`.
    reference: full title, every symbol resolved (not literal `<sprite…>` text), numbers match
    `win_tables.yaml`, nothing clipped.
    **Check the inline sprites specifically**, since they are the easiest thing to get silently wrong:
-   are they roughly 5× the height of a capital letter (2.2× for jackpot badges), and is the text
-   sitting at their vertical middle rather than at their top or bottom edge? A sprite the same height
-   as the text means the size tag is missing. Fix and re-render until it matches, then complete that page's
+   are they roughly 2.5× the height of a capital letter (about 1.1× for jackpot badges), and is the
+   text sitting at their vertical middle rather than at their top or bottom edge? A sprite the same
+   height as the text means the size tag is missing. Fix and re-render until it matches, then complete that page's
    task before moving to the next.
 
 ### Phase 6 — Finalize
