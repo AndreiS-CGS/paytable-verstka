@@ -193,8 +193,12 @@ base symbol with a badge applied.
 
 ### Title
 
-`title` is the blueprint's one conditional field — omit it on pages that carry none (continuation
-pages, Line Configuration). The header and page counter are always present.
+`title` is the blueprint's one conditional field. The header and page counter are always present.
+
+**A continuation page repeats the previous page's title verbatim** — same text, same colours. When a
+block overflows and is split, the reader is still inside the same section, so the heading has to stay
+with it. Omit `title` only where a page genuinely has no heading of its own, such as a full-page
+Line Configuration image.
 
 Text comes from the first bold line after `## Page N`. Colour is sampled from the image band where
 the title sits, which is chrome-level layout and constant across pages of a game — locate it once,

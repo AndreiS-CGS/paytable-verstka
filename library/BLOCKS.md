@@ -33,8 +33,10 @@ Page_1                              ← ROOT, move THIS for slider slot position
 `childControlHeight=false` (children's height is never touched — always set it yourself).
 **Usable width inside Body is therefore 1310.**
 
-`Title` is the only conditional field in the page chrome — switch it off on pages that carry none.
-Header and page counter are always present.
+`Title` is the only conditional field in the page chrome; Header and page counter are always
+present. A **continuation page repeats the previous page's title verbatim** — same text, same
+colours — because the reader is still inside the same section. Switch `Title` off only where a page
+genuinely has no heading of its own, such as a full-page Line Configuration image.
 
 ---
 

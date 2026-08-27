@@ -342,8 +342,10 @@ float meshBot = tm.rectTransform.TransformPoint(new Vector3(0, b.center.y-b.exte
 float meshTop = tm.rectTransform.TransformPoint(new Vector3(0, b.center.y+b.extents.y, 0)).y;
 bool overflow = (fBot - meshBot > 8) || (meshTop - fTop > 8);
 ```
-**Fix (loop until every page passes):** text overflow → split into a continuation page (never cut a
-bullet mid-way, re-measure, split again if still overflowing); grid overflow/empty cells → fewer
+**Fix (loop until every page passes):** text overflow → split into a continuation page. Never cut a
+bullet mid-way; re-measure and split again if still overflowing. **Carry the title across: the
+continuation page gets the SAME `Title` as the page it was split from** — identical text and colours,
+since it is still the same section — and the same `Header` category. Only the page counter differs. grid overflow/empty cells → fewer
 categories per page or resize the grid to the symbol count. Re-run Phase 6 after any split (slots,
 numbering, `cards[]`).
 
@@ -369,7 +371,8 @@ it carries the real sizes and layout settings, read off the prefabs. Summary onl
 *Page chrome*
 - `Page_1.prefab` — base page: `PageParent > {Background, Top{Header, Page}, Frame >
   Inner_Group{Title, Body}, Bottom}`. `Body` starts empty; exactly one page-level block goes in.
-  `Title` is the only conditional field — switch it off on pages that carry none.
+  `Title` is the only conditional field. A continuation page REPEATS the previous page's title
+  verbatim; switch it off only where a page genuinely has no heading, e.g. a full-page image.
 
 *Page-level — one of these into `Body`*
 - `GridPage.prefab` — `Row_1`/`Row_2`, three `GridCell`s each. Switch cells off: 6→3+3, 5→3+2, 4→2+2.
