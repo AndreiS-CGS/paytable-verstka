@@ -149,8 +149,8 @@ magenta placeholder, a reported mismatch, an extra page — over one that silent
   ladder exists in the corpus; "Available Jackpots" = badges stacked in a panel, no numbers.
 - **All paytables are English only.**
 - **Every inline sprite carries a size tag AND a voffset. A bare `<sprite name="X">` is a bug.**
-  Without a tag `P` is 100, which renders the sprite exactly one cap-height tall — three to five
-  times smaller than any reference, and sitting on the baseline instead of centred on the line. Emit:
+  Without a tag `P` is 100, which renders the sprite 0.93 cap-heights tall — 3.4× smaller than symbol
+  art should be — and sitting on the baseline instead of centred on the line. Emit:
   ```
   <voffset=5.11em><size=340%><sprite name="SYMBOL"></size></voffset>
   ```
@@ -167,13 +167,25 @@ magenta placeholder, a reported mismatch, an extra page — over one that silent
   comes out too large. The divisor is 1.5, not 2: at 2 a wide badge (`GRAND_JACKPOT` is 1423×128,
   an 11:1 aspect) shrank to 28% of its atlas size and the lettering inside stopped being legible.
 
+  **Both classes take the same 1.5 — settled on rendered pages, do not re-derive it.** Divisor 2 was
+  tried first and rejected on legibility; 1.5 was then checked on a badge page and a symbol-art page
+  together and accepted for both. `R` is the only thing to measure per game.
+
   Height holds within a class regardless of the art's proportions: a narrow tall stick of dynamite
   and a wide flat sign render the same height. Apparent size differences between them come from the
   art's own aspect, not from a different tag — only the two classes above differ by tag.
 
   `voffset` is one constant per font — `capLine × faceScale / (2 × pointSize)`, **5.11em** for the
   project font — and does not change with `P`: `bearingY = 64` centres the sprite on the baseline,
-  and this lifts it onto the text's optical middle. Measured: it lands within 0.1 unit of centre.
+  and this lifts it onto the text's optical middle. Measured lift is 16.4 units, identical at `P=150`
+  and `P=340`, leaving the sprite 0.8 units below the centre of the capitals — 2% of cap height. For
+  comparison, the same tag placed *inside* `size` lifts 40.9 (23.7 too high), and `0.51em` outside
+  lifts 1.6 (15.5 too low).
+
+  > When checking this yourself, do not measure a sprite's offset against its own
+  > `characterInfo[].baseLine` — TMP has already folded the `voffset` into that field, so the
+  > difference cancels and every variant looks identical. Take the baseline from a plain capital on
+  > the same line.
   Derivation, and the general form `P = 100 × R × capLine_em / 1.5`:
   `skills/cgs-atlas-builder/SKILL.md` → "Формулы".
 
