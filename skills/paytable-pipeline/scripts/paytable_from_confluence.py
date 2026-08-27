@@ -3,8 +3,8 @@
 Paytable Create Pipeline — Confluence API version
 No browser, no SingleFile. Works directly via Atlassian REST API.
 
-Config: ~/.confluence_pat  (API token, one line)
-Email:  andrei.syr@customgamesstudio.com
+Auth: Chrome cookie session (primary). Optional PAT at ~/.confluence_pat with
+      CONFLUENCE_EMAIL — see the skill's Prerequisites section.
 
 Usage:
   python3 paytable_from_confluence.py <confluence_url> <GameName> <output_dir>
@@ -12,8 +12,8 @@ Usage:
 Example:
   python3 paytable_from_confluence.py \
     "https://playstudios.atlassian.net/wiki/spaces/MYK/pages/17490313941/..." \
-    "Goat" \
-    "~/Library/Mobile Documents/iCloud~md~obsidian/Documents/_brsk/CGS/Goats/"
+    "<GameName>" \
+    "<output_dir>"
 """
 
 import re
@@ -32,38 +32,82 @@ except ImportError:
 
 # ── Config — all env-overridable so the skill is shareable across machines ──
 # Confluence identity (only needed for PAT/Basic auth; cookie auth needs neither).
-EMAIL      = os.environ.get('CONFLUENCE_EMAIL', 'andrei.syr@customgamesstudio.com')
+EMAIL      = os.environ.get('CONFLUENCE_EMAIL', '')
 TOKEN_FILE = os.path.expanduser(os.environ.get('CONFLUENCE_PAT_FILE', '~/.confluence_pat'))
 
-# Chrome profile cookies = the RELIABLE auth path (the Atlassian PAT often returns 403).
-# Set CHROME_COOKIE_FILE to a full path, OR set CHROME_PROFILE (e.g. "Profile 3") to build the
-# default macOS path. Each colleague points this at their own logged-in Atlassian profile.
-def _default_cookie_file():
+
+def _chrome_base_dirs():
+    """Chrome user-data dirs per platform — macOS, Windows and Linux."""
+    home = os.path.expanduser('~')
+    if sys.platform == 'darwin':
+        return [os.path.join(home, 'Library', 'Application Support', 'Google', 'Chrome')]
+    if os.name == 'nt':
+        local = os.environ.get('LOCALAPPDATA') or os.path.join(home, 'AppData', 'Local')
+        return [os.path.join(local, 'Google', 'Chrome', 'User Data')]
+    return [  # Linux / BSD
+        os.path.join(home, '.config', 'google-chrome'),
+        os.path.join(home, '.config', 'chromium'),
+    ]
+
+
+def _candidate_cookie_files():
+    """Every Chrome Cookies DB on this machine, honouring explicit env overrides.
+
+    Deliberately returns *candidates* rather than one guess: which browser
+    profile is logged into Confluence differs per person, so the caller picks by
+    testing for real cookies on the target domain instead of hardcoding a
+    profile name (that made the tool machine-specific).
+    """
     explicit = os.environ.get('CHROME_COOKIE_FILE')
     if explicit:
-        return os.path.expanduser(explicit)
-    profile = os.environ.get('CHROME_PROFILE', 'Profile 3')
-    base = os.path.expanduser('~/Library/Application Support/Google/Chrome')  # macOS
-    cand = os.path.join(base, profile, 'Cookies')
-    if os.path.exists(cand):
-        return cand
-    # fall back: scan profiles for an existing Cookies DB
-    if os.path.isdir(base):
-        for d in ['Default'] + sorted(p for p in os.listdir(base) if p.startswith('Profile ')):
-            c = os.path.join(base, d, 'Cookies')
-            if os.path.exists(c):
-                return c
-    return cand
+        return [os.path.expanduser(explicit)]
 
-CHROME_COOKIE_FILE = _default_cookie_file()
+    wanted = os.environ.get('CHROME_PROFILE')
+    found = []
+    for base in _chrome_base_dirs():
+        if not os.path.isdir(base):
+            continue
+        try:
+            dirs = sorted(os.listdir(base))
+        except OSError:
+            continue
+        profiles = [wanted] if wanted else \
+            ['Default'] + [p for p in dirs if p.startswith('Profile ')]
+        for d in profiles:
+            # Chrome moved cookies under Network/ in newer versions.
+            for parts in (('Network', 'Cookies'), ('Cookies',)):
+                cand = os.path.join(base, d, *parts)
+                if os.path.exists(cand) and cand not in found:
+                    found.append(cand)
+    return found
 
 OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
 CLEAN_MODEL        = os.environ.get('OPENROUTER_CLEAN_MODEL', 'google/gemini-2.0-flash-lite')
 
 SECTION_END_MARKER = 'Task types for Live Ops'
 
+# ── Symbol tokens ───────────────────────────────────────────────────────────
+# Rules text refers to game symbols as <NAME> / [NAME]. Real GDDs use far more
+# than caps and spaces: DARK_ACE, 2_WILD&SIGNBOARD, FULL_FUSE_RED_DYNAMITE,
+# +1_SPIN, TROLLEY_2. Underscore in particular was missing from every class
+# below, which silently dropped a large share of the vocabulary on variant-rich
+# games — and a token missing from Symbols.md makes TMP render a default emoji
+# instead of <sprite name="…">. Keep all token regexes derived from this one
+# character class so they can never drift apart again.
+TOKEN_BODY = r'[A-Z0-9][A-Z0-9_&+.\- ]*'
+TOKEN_ANGLE_RE  = re.compile(r'<\s*(\+?%s)\s*>' % TOKEN_BODY)
+TOKEN_SQUARE_RE = re.compile(r'\[\s*(\+?%s)\s*\]' % TOKEN_BODY)
+
 EDITORIAL_PATTERNS = [
-    r'^\*{0,2}Please,?\s*add\s*this\s*text:?\*{0,2}\s*$',
+    # "Add:" / "Add this text:" / "Please, add these text:" / "Please also add:" /
+    # "**Add:**" — authors mark inserted copy in many wordings, and matching only
+    # "Please add this text:" leaves the marker in the Clean output of most GDDs.
+    # Deliberately narrow: the tail after "add" only accepts filler words and the
+    # line must end in a colon, so real rules copy survives — "ALL WINS ARE
+    # ADDED.", "ADD 1 EXTRA SPIN:", "ADDED SYMBOLS:" are all kept.
+    r'^\*{0,2}\s*(?:please,?\s*)?(?:also\s+)?add'
+    r'(?:\s+(?:also|this|these|those|the\s+following))?'
+    r'(?:\s+(?:text|texts|line|lines|wording))?\s*:\s*\*{0,2}\s*$',
     r'^\*{0,2}Note:.*$',
     r'^\*{0,2}Comment:.*$',
 ]
@@ -71,14 +115,21 @@ EDITORIAL_PATTERNS = [
 # ── Auth ────────────────────────────────────────────────────────────────────
 
 def get_headers():
-    with open(TOKEN_FILE) as f:
-        token = f.read().strip()
+    """Basic-auth headers when a PAT is configured; cookie-only auth otherwise.
+
+    Cookie auth is the primary path, so a missing PAT file must not be fatal —
+    anyone who only logs into Confluence in Chrome should still work.
+    """
+    headers = {'Accept': 'application/json'}
+    try:
+        with open(TOKEN_FILE) as f:
+            token = f.read().strip()
+    except OSError:
+        return headers
     creds = b64encode(f'{EMAIL}:{token}'.encode()).decode()
-    return {
-        'Authorization': f'Basic {creds}',
-        'Accept': 'application/json',
-        '_token': token,  # kept for download calls that need Bearer
-    }
+    headers['Authorization'] = f'Basic {creds}'
+    headers['_token'] = token          # kept for download calls that need Bearer
+    return headers
 
 
 def get_download_headers(headers):
@@ -141,9 +192,19 @@ def extract_image_filenames_from_html(section_html):
         else:
             print(f"  Warning: no image found after Page {page_num} heading")
 
-    found.sort(key=lambda x: x[0])
-    filenames = [f for _, f in found]
-    print(f"  Images by position: {filenames}")
+    if found:
+        found.sort(key=lambda x: x[0])
+        filenames = [f for _, f in found]
+        print(f"  Images by position: {filenames}")
+        return filenames
+
+    # Fallback: some GDDs list the screenshots under one flat "Pay Table"
+    # heading with no "Page N" sub-headings at all. Without this the whole
+    # extraction silently produced zero images. Document order is then the only
+    # ordering signal available — attachment filename numbering is not reliable,
+    # since those prefixes are legacy asset names, not the screen order.
+    filenames = img_re.findall(section_html)
+    print(f"  No Page N sub-headings — using document order: {filenames}")
     return filenames
 
 
@@ -188,13 +249,49 @@ def fetch_paytable_attachments(base_url, page_id, headers, section_html):
     return result
 
 
+_COOKIE_CACHE = {}
+
+
 def get_chrome_cookies(base_url):
-    """Load Chrome session cookies for the Confluence domain."""
+    """Session cookies for the Confluence domain, from whichever profile has them.
+
+    Picks the first Chrome profile that actually yields cookies for this domain,
+    so it works regardless of which profile the user is signed in with, on any OS.
+    """
     if not COOKIES_AVAILABLE:
         return None
     from urllib.parse import urlparse
     domain = urlparse(base_url).netloc
-    return browser_cookie3.chrome(cookie_file=CHROME_COOKIE_FILE, domain_name=domain)
+    if domain in _COOKIE_CACHE:
+        return _COOKIE_CACHE[domain]
+
+    candidates = _candidate_cookie_files()
+    chosen, errors = None, []
+    for path in candidates:
+        try:
+            jar = browser_cookie3.chrome(cookie_file=path, domain_name=domain)
+        except Exception as e:
+            errors.append(f'{os.path.basename(os.path.dirname(path))}: {e.__class__.__name__}')
+            continue
+        if jar and len(jar):
+            chosen = jar
+            print(f"  Auth: Chrome cookies from {path} ({len(jar)} for {domain})")
+            break
+
+    if chosen is None:
+        try:                          # last resort: browser_cookie3's own detection
+            chosen = browser_cookie3.chrome(domain_name=domain) or None
+        except Exception as e:
+            errors.append(f'auto-detect: {e.__class__.__name__}')
+        if chosen is None:
+            print(f"  Warning: no Chrome cookies for {domain} "
+                  f"(checked {len(candidates)} profile(s))"
+                  + (f' — {"; ".join(errors)}' if errors else ''))
+            print("  Hint: log into Confluence in Chrome, or set "
+                  "CHROME_PROFILE / CHROME_COOKIE_FILE.")
+
+    _COOKIE_CACHE[domain] = chosen
+    return chosen
 
 
 def download_images(attachments, output_dir, headers, base_url):
@@ -251,8 +348,8 @@ def download_images(attachments, output_dir, headers, base_url):
 # ── HTML → Markdown conversion ──────────────────────────────────────────────
 
 def strip_html_tags(text):
-    """Strip HTML tags but preserve game symbol tokens like <MARK>, <5X>."""
-    return re.sub(r'<(?![A-Z0-9][A-Z0-9 +]*>)[^>]+>', ' ', text)
+    """Strip HTML tags but preserve game symbol tokens like <MARK>, <DARK_ACE>."""
+    return re.sub(r'<(?!\+?%s>)[^>]+>' % TOKEN_BODY, ' ', text)
 
 
 def cell_text(html_chunk):
@@ -345,7 +442,14 @@ def html_to_markdown(html_fragment):
 
     # Convert game symbol tokens to [SYMBOL] format: <MARK> → [MARK]
     # Square brackets work everywhere in Obsidian without breaking any parsing.
-    html_fragment = re.sub(r'<([A-Z0-9][A-Z0-9 +]*)>', r'[\1]', html_fragment)
+    # Uses the shared token class, so underscored/combo names convert too —
+    # previously <GRAND JACKPOT> became [GRAND JACKPOT] while
+    # <GREEN_STACKED_WILD> stayed angle-bracketed, leaving two conventions in
+    # one file for every downstream consumer to trip over.
+    html_fragment = TOKEN_ANGLE_RE.sub(lambda m: '[' + m.group(1) + ']', html_fragment)
+
+    # One spelling per symbol, document-wide (see canonicalise_tokens).
+    html_fragment = canonicalise_tokens(html_fragment)
 
     # Restore strikethrough placeholders as <del>...</del>
     html_fragment = html_fragment.replace('\x00DEL\x01', '<del>').replace('\x00/DEL\x01', '</del>')
@@ -360,19 +464,24 @@ def html_to_markdown(html_fragment):
 
 
 def find_paytable_section(html):
-    """Extract just the Pay Table Pages section from the full page HTML.
+    """Extract just the Pay Table section from the full page HTML.
 
-    In export_view format the heading has id="...-PayTablePages" in the actual
-    body (not the ToC). We find by anchor id to avoid matching the ToC links.
+    In export_view format the heading carries an anchor id in the actual body
+    (not the ToC), so we match on that id to avoid the ToC links.
+
+    The heading is NOT always "Pay Table Pages": GDDs also head this section
+    "Pay Table" or "Paytable" (3 of 9 surveyed games did), and matching the
+    longer string alone silently fell through to the whole page — which then
+    pulled math tables and unrelated sections into the extraction.
     Section ends at the next same-level (h1/h2) heading.
     """
     # Find the heading by its anchor id attribute (skips ToC occurrences)
-    start_m = re.search(r'<h(\d)[^>]*id="[^"]*PayTablePages[^"]*"', html, re.IGNORECASE)
+    start_m = re.search(r'<h(\d)[^>]*id="[^"]*Pay ?Table[^"]*"', html, re.IGNORECASE)
     if not start_m:
-        # Fallback: find LAST occurrence of Pay Table Pages text (body, not ToC)
-        positions = [m.start() for m in re.finditer(r'Pay Table Pages', html, re.IGNORECASE)]
+        # Fallback: find LAST occurrence of the heading text (body, not ToC)
+        positions = [m.start() for m in re.finditer(r'Pay ?Table', html, re.IGNORECASE)]
         if not positions:
-            print("Warning: Pay Table Pages section not found, using full HTML")
+            print("Warning: Pay Table section not found, using full HTML")
             return html
         idx = positions[-1]
         start_m = re.search(r'<h\d', html[:idx][::-1])  # find nearest h tag backwards
@@ -418,7 +527,12 @@ def make_clean(text):
             continue
 
         # Remove inline strikethrough fragments: <del>word</del> → (removed)
-        line = re.sub(r'\s*<del>[^<]+</del>\s*', ' ', line, flags=re.IGNORECASE).strip()
+        # `.*?` rather than `[^<]+`: struck text often contains a stray `<` from a
+        # mangled token (e.g. "<del>EXCEPT [GRAND JACKPOT] … AND <MI</del>"), and a
+        # class that stops at `<` left the whole struck fragment in the Clean file —
+        # exactly the version we build content from.
+        line = re.sub(r'\s*<del>.*?</del>\s*', ' ', line,
+                      flags=re.IGNORECASE | re.DOTALL).strip()
         if not line:
             continue
 
@@ -465,13 +579,64 @@ def make_clean_llm(text: str) -> str:
     return resp.json()["choices"][0]["message"]["content"]
 
 
+def sprite_name(token):
+    """GDD token -> TMP sprite name.
+
+    These two rules are what makes GDD tokens line up with the names in a built
+    atlas — sprite names there are already underscore-normalised.
+        ' ' -> '_'      [DARK ACE]  -> DARK_ACE,  [MINI BONUS] -> MINI_BONUS
+        '+' -> 'PLUS'   [+1 SPIN]   -> PLUS1_SPIN
+    """
+    return re.sub(r'\s+', '_', token.strip()).replace('+', 'PLUS')
+
+
+def canonicalise_tokens(text):
+    """Rewrite every symbol token into its canonical sprite-name form.
+
+    Applied to ALL tokens, not just ones spelled two ways. An earlier version was
+    deliberately narrow, on the assumption that renaming spaced tokens would break
+    the match against art filenames. The opposite is true: sprite names in a built
+    atlas are already underscore-normalised ([DARK ACE] is DARK_ACE there), so
+    normalising everything is what actually makes the two sides agree.
+
+    Collapsing duplicate spellings then falls out for free: [GRAND JACKPOT] and
+    [GRAND_JACKPOT] become the same token instead of two atlas entries, one of
+    which would resolve to nothing at runtime.
+    """
+    names = {re.sub(r'\s+', ' ', m).strip() for m in TOKEN_SQUARE_RE.findall(text)}
+    merged, renamed = [], 0
+    for name in sorted(names):
+        canon = sprite_name(name)
+        if canon == name:
+            continue
+        text = re.sub(r'\[\s*%s\s*\]' % re.escape(name), '[' + canon + ']', text)
+        renamed += 1
+        if canon in names:                       # two spellings collapsed into one
+            merged.append((name, canon))
+    if renamed:
+        print(f"  Canonicalised {renamed} token spelling(s) to sprite-name form")
+    for was, now in merged:
+        print(f"    merged duplicate: [{was}] -> [{now}]")
+    return text
+
+
 def extract_symbols(text):
-    # Match [SYMBOL] and <SYMBOL> formats used in output
-    bracket = re.findall(r'\[([A-Z0-9][A-Z0-9 +]*)\]', text)
-    angle = re.findall(r'<([A-Z0-9][A-Z0-9 &+]*)>', text)
-    symbols = {'[' + s.strip() + ']' for s in bracket}
-    symbols |= {'<' + s.strip() + '>' for s in angle}
-    return sorted(symbols)
+    """Every symbol token in the text, as canonical [SPRITE_NAME] entries.
+
+    Both bracket styles are accepted so the sweep is complete even if some
+    angle-bracketed token survived conversion, and every name is passed through
+    sprite_name() so the list can be handed straight to the atlas builder —
+    downstream consumers (atlas builder, TMP sprite asset) need one spelling per
+    symbol, and the old mixed output produced duplicates like [GRAND JACKPOT]
+    plus <GRAND_JACKPOT>.
+    """
+    names = set()
+    for rx in (TOKEN_SQUARE_RE, TOKEN_ANGLE_RE):
+        for s in rx.findall(text):
+            name = sprite_name(s)
+            if name:
+                names.add(name)
+    return ['[' + n + ']' for n in sorted(names)]
 
 # ── Main ────────────────────────────────────────────────────────────────────
 

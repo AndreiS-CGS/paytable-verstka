@@ -26,32 +26,43 @@ Unity-side шаги делегированы в C#-утилиту `CGS.PaytableL
 ## Входные данные
 
 Спросить у юзера (если не указано):
-1. **Путь к бандлу** (относительно `Assets/`) — например `Bundles/_gel/_games/crazystuffedcoinsgoat`
-2. **Имя слота** для нейминга — например `Goat` → `Goat_PaytableAtlasTex.png`, `Goat_PaytableSpriteAsset.asset`
+1. **Путь к бандлу** (относительно `Assets/`) — вида `Bundles/_gel/_games/<slot>`
+2. **Имя слота** для нейминга — `<Slot>` → `<Slot>_PaytableAtlasTex.png`, `<Slot>_PaytableSpriteAsset.asset`
 
 ## Шаги выполнения
 
 ### 1. Обработка PNG (Python — `scripts/process_pngs.py`)
 
 ```bash
-python3 "<skill_dir>/scripts/process_pngs.py" "<путь к исходным PNG>" \
-  --height 128 --small-height 100 --small-height-names grand,major,mini,minor
+python3 "<skill_dir>/scripts/process_pngs.py" "<путь к исходным PNG>" --height 128
 ```
 Обрезает по альфе (порог 127 по умолчанию), ресайзит пропорционально до указанной высоты, пишет в
-`<src>_128/`. `--small-height-names` — список имён (lowercase), которым нужна меньшая высота
-(обычно джекпот-бейджи).
+`<src>_128/`.
+
+**Высота всегда 128 у всех спрайтов без исключений, ширина свободная.** Именно это делает шрифт
+стандартным: `glyph.height = pointSize`, и формулы из «Формул» сворачиваются в
+`spriteHeight = fontSize × P/100`. Никакого второго тира для джекпот-бейджей — нужный размер в
+каждом месте даёт тег `<size=P%>`, а не отдельная высота в атласе. Флаги `--small-height` /
+`--small-height-names` относились к прежней схеме и больше не используются.
 
 ### 2. Паковка в атлас (Python — `scripts/pack_atlas.py`)
 
 ```bash
 python3 "<skill_dir>/scripts/pack_atlas.py" "<src>_128" \
   "<бандл>/<Slot>_PaytableAtlasTex.png" "<бандл>/<Slot>_PaytableAtlasTex.json" \
-  --atlas-size 1024 --pad 4
+  --atlas-size <по потребности> --pad 4
 ```
 Пакует все PNG из шага 1 в один атлас + JSON с координатами (уже во Unity-конвенции — Y от низа
-текстуры). Бросает ошибку при переполнении 1024×1024 — в этом случае уменьшить высоту в шаге 1 и
-повторить оба шага. JSON хранить рядом с PNG в бандле (пригодится и позже, хотя шаг 6 может читать
-его напрямую).
+текстуры). JSON хранить рядом с PNG в бандле (пригодится и позже, хотя шаг 6 может читать его
+напрямую).
+
+**Размер атласа не фиксирован — берётся сколько нужно.** Уменьшать высоту спрайтов ради
+влезания в меньшую текстуру нельзя: это ломает стандарт шрифта.
+
+Прикинуть нужный размер до паковки: `площадь ≈ N × медианная_ширина × 128`, дальше округлить вверх
+до степени двойки или кратного 256 с запасом на пад. Ширины сильно разнятся (карточные ранги узкие,
+лого джекпотов бывают в несколько раз шире высоты), поэтому оценка по медиане точнее, чем по
+квадрату 128×128.
 
 ### 3. Копирование в Unity staging
 
@@ -99,23 +110,109 @@ int sliced = PaytableAtlasBuilder.SliceIntoSubSprites(texPath, assetPath);
 return report + $" | sliced {sliced} sub-sprites";
 ```
 
-**Face Info** (через `SerializedObject`, только сразу после `AssetDatabase.CreateAsset` на новом
-ассете — до этого `WriteSpriteAssetTables` не трогает Face Info, так что это отдельный шаг):
+**Face Info — стандартная конфигурация.** Задаётся через `SerializedObject`, только сразу после
+`AssetDatabase.CreateAsset` на новом ассете (до этого `WriteSpriteAssetTables` не трогает Face Info,
+так что это отдельный шаг).
+
+Смысл стандарта: шрифт настраивается **один раз и одинаково для всех слотов**, а нужный размер
+спрайта в каждом месте задаётся тегом `<size=P%>`, а не правкой ассета. Все значения ниже выведены
+из исходников TMP (см. «Формулы»), а не подобраны.
+
+> **Стандарт применяется к новым ассетам. Уже собранные не миграционить.**
+> Ассет, собранный по другой схеме, выглядит правильно ровно потому, что его тексты подогнаны под
+> его собственные параметры. Перевод такого ассета на стандарт без одновременной правки всех его
+> текстов изменит рендер уже отгруженной игры.
+
 ```csharp
 var so = new UnityEditor.SerializedObject(sa);
 so.FindProperty("material").objectReferenceValue = mat;
-so.FindProperty("m_FaceInfo.m_PointSize").intValue     = 128;
-so.FindProperty("m_FaceInfo.m_Scale").floatValue       = 1.0f;
+so.FindProperty("m_FaceInfo.m_PointSize").intValue     = 128;   // = высота исходников
+so.FindProperty("m_FaceInfo.m_Scale").floatValue       = 10.0f; // = 1 / orthoMult, см. Формулы
 so.FindProperty("m_FaceInfo.m_LineHeight").floatValue  = 128.0f;
-so.FindProperty("m_FaceInfo.m_AscentLine").floatValue  = 128.0f;
+so.FindProperty("m_FaceInfo.m_AscentLine").floatValue  = 64.0f; // половина высоты
+so.FindProperty("m_FaceInfo.m_Baseline").floatValue    = 0.0f;
+so.FindProperty("m_FaceInfo.m_DescentLine").floatValue = -64.0f;
 so.ApplyModifiedProperties();
 UnityEditor.AssetDatabase.SaveAssets();
 ```
 
+Метрики глифов (пишет `WriteSpriteAssetTables`): `height = 128`, `width` = фактическая,
+`horizontalAdvance = width`, **`horizontalBearingY = 64`**, `glyph.scale = 1`,
+`character.m_Scale = 1`.
+
+`bearingY = 64` — половина высоты глифа, то есть спрайт центрируется **по базовой линии**. Это и
+есть причина выбрать 64, а не «правильную» точку центра по cap: при любом другом значении
+`bearingY` пришлось бы пересчитывать под каждый `P`, а при 64 поправка на cap становится одной
+константой на шрифт, от `P` не зависящей.
+
+### Формулы
+
+Выведены из `com.unity.ugui/Runtime/TMP/TextMeshPro.cs` — строки 2227 (`orthographicMultiplier`),
+2552–2559 (масштаб спрайта), 2836/2841 (вершины квада). Не приблизительные.
+
+```
+orthoMult    = m_isOrthographic ? 1 : 0.1
+spriteScale  = fontSize / faceInfo.pointSize × faceInfo.scale × orthoMult
+elementScale = character.m_Scale × glyph.scale × spriteScale
+
+spriteHeight     = glyph.height   × elementScale
+topAboveBaseline = glyph.bearingY × elementScale
+```
+
+При стандартной конфигурации (`glyph.height = pointSize = 128`, оба scale = 1) это сворачивается в:
+
+```
+spriteHeight = fontSize × faceInfo.scale × orthoMult × P/100
+```
+
+и при `faceInfo.scale = 1 / orthoMult`:
+
+```
+spriteHeight = fontSize × P/100
+```
+
+**То есть `P` из тега `<size=P%>` — это прямо высота спрайта в процентах от кегля текста.**
+`P = 100` → спрайт ростом в кегль; `P = 250` → в 2.5 кегля.
+
+**Вертикальная поправка** — одна константа на шрифт, не зависит от `P`:
+
+```
+voffset = capLine_em / 2
+capLine_em = font.capLine × font.faceInfo.scale × orthoMult / font.faceInfo.pointSize
+```
+
+Считается один раз для того font asset'а, которым набран Body: взять из его `faceInfo` поля
+`capLine`, `scale` и `pointSize`, подставить, получить константу в em. Например при
+`capLine 33, scale 13, pointSize 42` и `orthoMult = 0.1` выходит `capLine_em ≈ 1.02` → `voffset ≈ +0.51em`.
+
+Отношение к высоте прописной: `spriteHeight / capH = P / (100 × capLine_em)`.
+
+> **Грабля с `orthoMult`.** Множитель 0.1 — это не константа TMP, а `m_isOrthographic ? 1 : 0.1`.
+> Body-тексты паytable — `TextMeshPro` (3D) с `m_isOrthographic: 0`, поэтому 0.1 и
+> `faceInfo.scale = 10`. Если текст сделать ортографическим или перевести на `TextMeshProUGUI`,
+> множитель станет 1 и **все спрайты вырастут в 10 раз** — тогда `faceInfo.scale` должен быть 1.
+> Это единственное место, где конфигурация зависит от типа текстового компонента.
+
+### Имя спрайта из токена GDD
+
+Токены в тексте GDD и имена спрайтов в атласе связаны двумя правилами:
+
+```
+' '  ->  '_'
+'+'  ->  'PLUS'
+```
+
+Например `[+1 SPIN]` → `<sprite name="PLUS1_SPIN">`, `[DARK ACE]` → `DARK_ACE`,
+`[MINI BONUS]` → `MINI_BONUS`.
+
+**Сверять в одну сторону: каждый токен обязан иметь спрайт, но не наоборот.** Атлас законно
+содержит спрайты, которых в тексте правил нет — гридовые символы (карточные ранги и PIC'и) приходят
+из Pay Grid, а не из текста, и в токенах могут не встречаться ни разу.
+
 ### 8. Результат
 
 ```
-✅ <Slot>_PaytableAtlasTex.png   — 1024×1024 атлас
+✅ <Slot>_PaytableAtlasTex.png   — атлас (размер по потребности, спрайты 128 по высоте)
 ✅ <Slot>_PaytableAtlasTex.json  — координаты (хранить в бандле)
 ✅ <Slot>_PaytableSpriteAsset Material.mat
 ✅ <Slot>_PaytableSpriteAsset.asset — N спрайтов + N суб-спрайтов (нарезка шага 7b)
@@ -132,9 +229,11 @@ Image vs инлайн-спрайт").
 | Спрайты не рендерятся по имени | Хеши неправильные — брать ТОЛЬКО из `PaytableAtlasBuilder.GetHashCodes` (шаг 5) |
 | Таблицы пустые в инспекторе | Не использовать C# API, `WriteSpriteAssetTables` пишет YAML напрямую (шаг 6) |
 | Default Material: None | `PaytableAtlasBuilder.CreateSpriteMaterial` — шейдер TextMeshPro/Sprite (шаг 4) |
-| Атлас не влезает в 1024 | `pack_atlas.py` бросит ошибку сам — уменьшить высоту в `process_pngs.py` (grand/major/mini/minor → 100px) и повторить оба шага |
+| Атлас не влезает | Увеличить `--atlas-size` (1280² / 1536² / 2048²). **Не уменьшать высоту спрайтов** — 128 это часть стандарта шрифта, любое отклонение ломает формулу `spriteHeight = fontSize × P/100` |
 | `<sprite name="X">` → literal text | Неправильные хеши ИЛИ не вызван `UpdateLookupTables()` (входит в `FinalImportAndVerify`) |
 | `<sprite name="X">` → ПУСТО (таблицы/хеши ок) | Атлас-текстура не назначена — `FinalImportAndVerify` бросит исключение с отчётом, что именно не так |
 | SerializedObject не сохраняет списки | Баг Unity — `WriteSpriteAssetTables` пишет YAML напрямую, это обходит проблему |
-| Инлайн-спрайты мыльные / нечёткие | character `m_Scale = 30` (спрайты 128px рендерятся ×2 → чётче). Зависимость размера: `meshH ≈ 0.1 × m_Scale × fontSize` → для эталонного размера `fontSize ≈ 1860/m_Scale` (62 при scale 30), `voffset ≈ 9.7×fontSize` (600). См. `paytable-verstka` `library/BLOCKS.md` |
+| Инлайн-спрайты мыльные / нечёткие | Не трогать ассет — увеличить `P` в теге `<size=P%>` на месте использования. Исходники всегда 128px, поэтому запас разрешения есть; резкость даёт больший `P`, а не правка `m_Scale` |
+| Спрайты вдруг стали в 10 раз больше/меньше | Сменился тип текстового компонента или `m_isOrthographic` — поменялся `orthoMult`. См. граблю про `orthoMult` в «Формулах» |
+| Спрайт съехал по вертикали | `bearingY` должен быть 64 у всех глифов; вертикаль правится только `voffset` в теге, одной константой на шрифт |
 | Символ-герой нужен как обычный `Image`, а не инлайн-тег | `PaytableAtlasBuilder.SliceIntoSubSprites` (шаг 7b) — нарезает тот же атлас по тем же rect'ам из `spriteGlyphTable`, без дублирования текстуры |

@@ -36,7 +36,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 13.595, y: -52.46}
+  m_AnchoredPosition: {x: 97.435, y: -25}
   m_SizeDelta: {x: 27.19, y: 0}
   m_Pivot: {x: 0.5, y: 1}
 --- !u!222 &6793466713918780187
@@ -112,13 +112,15 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: '<color=green>
+  m_text: '<size=20> </size>
 
-    5
+    <color=green>5</color>
 
-    4
+    <color=green>4</color>
 
-    3</color>'
+    <color=green>3</color>
+
+    <color=green>2</color>'
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 354741b32dc5f4b0fa48c8b1e39ea7e8, type: 2}
   m_sharedMaterial: {fileID: 2160356, guid: 354741b32dc5f4b0fa48c8b1e39ea7e8, type: 2}
@@ -218,7 +220,7 @@ GameObject:
   - component: {fileID: 7624696708105601565}
   - component: {fileID: 8720948877540333715}
   m_Layer: 13
-  m_Name: PayBlock
+  m_Name: PayRows
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -260,9 +262,9 @@ MonoBehaviour:
   m_Padding:
     m_Left: 0
     m_Right: 0
-    m_Top: 0
+    m_Top: 25
     m_Bottom: 0
-  m_ChildAlignment: 4
+  m_ChildAlignment: 1
   m_Spacing: 50
   m_ChildForceExpandWidth: 0
   m_ChildForceExpandHeight: 0
@@ -307,8 +309,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 165.125, y: -52.46}
-  m_SizeDelta: {x: 175.87, y: 0}
+  m_AnchoredPosition: {x: 213.595, y: -25}
+  m_SizeDelta: {x: 105.13, y: 0}
   m_Pivot: {x: 0.5, y: 1}
 --- !u!222 &6096053478137084047
 CanvasRenderer:
@@ -383,13 +385,15 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: '1 credit
+  m_text: '<size=20>1 credit</size>
 
-    <color=yellow>150
+    <color=yellow>150</color>
 
-    50
+    <color=yellow>50</color>
 
-    10</color>
+    <color=yellow>10</color>
+
+    <color=yellow>5</color>
 
 '
   m_isRightToLeft: 0
