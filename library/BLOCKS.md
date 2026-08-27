@@ -159,11 +159,11 @@ using inline `<sprite name="X">` tags.
 ### Font size — three fixed values, never per page
 | Where | Size |
 |---|---|
-| Rules copy on a text page, and the pay-rules footer | **32** (the prefab default) |
+| Rules copy on a text page | **32** (the prefab default) |
 | `SpecialPanel/Label` | **40** |
 | `SpecialPanel/OptionalTextBlock` | **25** |
 
-Body copy on a page is one uniform size — there is no small-print variant, which is why the footer
-is this same block rather than a type of its own. The two panel sizes are a deliberate exception:
+Body copy on a page is one uniform size — there is no small-print variant. The two panel sizes are a
+deliberate exception:
 inside a panel the label reads as a heading and the rules copy sits tighter. Those three values live
 on the prefab and its instances — never override the size per page.

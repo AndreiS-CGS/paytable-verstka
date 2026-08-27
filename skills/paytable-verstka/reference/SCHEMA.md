@@ -42,16 +42,6 @@ slot: <slotid>                 # bundle folder name
 shell: GEL                     # GEL | MCF
 orientation: Portrait          # from GDD Summary -> Layout. Summary WINS over screenshot pixels.
 
-# Authored once per game and attached to the pages that show it — the footer copy is often NOT
-# written on the page it renders on. Expect to find it under an editorial "Add:" marker on some
-# other page entirely.
-footer:
-  attach_to: [1, 2]
-  paragraphs:
-    - runs: [{t: "ONLY HIGHEST WIN PAID FOR EACH WINNING COMBINATION."}]
-    - runs: [{t: "LINE PAYS OCCUR ON ADJACENT REELS STARTING WITH THE LEFT MOST REEL."}]
-    - runs: [{t: "ALL WINS ARE ADDED."}]
-
 pages:
   # ── specials: an oversized panel gets a page to itself ────────────────────
   - page: 1
@@ -176,9 +166,13 @@ takes a page on its own, the rest pair up.
 
 One GDD paragraph = one entry, rendered with **one bullet per paragraph, not per visual line** (a
 wrapped paragraph carries no bullet on its continuation). Body copy on a page is **one uniform
-size** — there is no small-print variant, which is why the pay-rules footer is the same `TextBlock`
-and not a block type of its own. Inside a `SpecialPanel` two other fixed sizes apply (label larger,
-rules copy tighter); see `library/BLOCKS.md`. Size is never chosen per page.
+size** — there is no small-print variant. Inside a `SpecialPanel` two other fixed sizes apply (label
+larger, rules copy tighter); see `library/BLOCKS.md`. Size is never chosen per page.
+
+**There is no footer concept.** Boilerplate pay-rules copy is not a special block and gets no special
+handling: if the GDD writes such text under a page, it is paragraphs on that page like any other; if
+it isn't there, it isn't there. Don't hunt for it elsewhere in the document and don't replicate it
+across pages.
 
 Three run kinds, and they are genuinely different things:
 

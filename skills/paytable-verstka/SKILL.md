@@ -21,17 +21,23 @@ NOT by cloning a whole donor prefab and mutating it (the old, brittle model).
 reference screenshots and the project; make the call and keep going. Do not pause to show
 intermediate results for approval.
 
-**Stop and ask in exactly two situations:**
+**Stop and ask in exactly two situations, both at a fixed point in the run:**
 1. **A required input is missing** — game name or Confluence GDD URL. Ask once, for everything
-   missing at once, then run to the end.
-2. **Symbol art doesn't exist.** Search the game's bundle first and map what you find. Only if a
-   symbol has no art anywhere do you stop and ask for it. Never invent, substitute or re-use another
-   symbol's art.
+   missing at once, at the start.
+2. **Symbol art is missing — ask at Phase 4, before building the atlas.** By then the symbol list is
+   final, so this is the one moment where the full picture is known. Post the complete list of
+   symbols with the art file mapped to each, and name every symbol you could not find art for. Then
+   wait. Never invent, substitute or re-use another symbol's art.
+
+   **Do not defer this to the end of the run.** Discovering at the finish that two symbols were
+   placeholders the whole time is a failure of this contract, not a report. If the answer is "build
+   anyway", placeholders are fine — but that is the user's call to make at Phase 4, not yours to make
+   silently.
 
 **Everything else is reported, not asked.** Write findings as you go and deliver one report at the
 end covering: contradictions and leftover struck-out fragments found in the GDD (`review.md`),
-symbols whose art is missing, manual slots awaiting a picture, and any page you could not make fit.
-A finding never blocks assembly — a page with a placeholder is a finished page for this purpose.
+manual slots awaiting a picture, and any page you could not make fit. A finding never blocks
+assembly — a page with a manual-slot placeholder is a finished page for this purpose.
 
 **When a judgement is genuinely ambiguous, choose the option that is visible and reversible** — a
 magenta placeholder, a reported mismatch, an extra page — over one that silently guesses.
@@ -101,6 +107,9 @@ magenta placeholder, a reported mismatch, an extra page — over one that silent
   - Common assets (page background, fonts) are NOT duplicated into the library or into each game's
     own bundle — blocks reference whatever already exists in the project (e.g. shared UI assets), to
     avoid cross-bundle asset duplication in the AssetBundle/Addressables pipeline.
+    **`Page_1` and its background ARE the standard.** A reference screenshot with a different-coloured
+    background is not a defect to match — don't recolour the shared prefab, don't add a per-game
+    background, and don't raise it as a finding.
 
 ## Core mental model — READ THIS FIRST
 - **Division of authority: content comes from the GDD TEXT; only payouts and colours come from the
@@ -227,17 +236,25 @@ Write the mapping to `_verstka/block_mapping.md`.
    Naming conventions vary per game (see Portability), so match by opening candidate files and
    comparing them to the reference screenshot — a filename alone is not evidence. Verify every
    mapping visually, including ones that look obvious.
-   Only symbols with no art anywhere become an ask, and ask for all of them in one message rather
-   than one at a time. **Never fabricate art, and never substitute another symbol's art** — a symbol
-   with no art keeps its magenta `IconSlot` placeholder and goes into the final report.
-3. Run `cgs-atlas-builder` — its Unity-side steps are real code now, not re-typed each run: the
+
+3. **THE ART GATE — the run stops here, once.** Post the full symbol list with the art file mapped to
+   each, and name every symbol you found no art for. Then wait for an answer. This is the only
+   moment in the run where the symbol list is final and nothing has been built on it yet, which is
+   exactly why the gate sits here and not at the end.
+   - Say the count plainly: "N symbols, M without art", and list the M.
+   - **Never fabricate art, and never substitute another symbol's art.**
+   - If told to proceed anyway, missing symbols keep their magenta `IconSlot` placeholder — but that
+     is a decision taken here, out loud, not one you make by carrying on.
+   - Finishing a run and only then revealing that some symbols were placeholders throughout is a
+     contract failure, not a report.
+4. Run `cgs-atlas-builder` — its Unity-side steps are real code now, not re-typed each run: the
    `CGS.PaytableLibrary.PaytableAtlasBuilder` static class (`library/Editor/PaytableAtlasBuilder.cs`,
    same package as everything else in "Block library reference" below) does material creation,
    correct-hash lookup, direct-YAML table writing, final import + the 4-point verification
    (`GetSpriteIndexFromName ≥ 0`, `spriteCharacterTable.Count > 0`, `spriteSheet != null`,
    `material.mainTexture != null` — it throws if any fails), and sub-sprite slicing, all as callable
    methods. See `skills/cgs-atlas-builder/SKILL.md` for the exact call sequence.
-4. Sub-sprite slicing (`PaytableAtlasBuilder.SliceIntoSubSprites`) — builds a `TextureImporter`
+5. Sub-sprite slicing (`PaytableAtlasBuilder.SliceIntoSubSprites`) — builds a `TextureImporter`
    sprite sheet from the SAME rectangles already in the TMP `spriteGlyphTable`, giving
    individually-addressable Sprite sub-assets usable in a plain `Image.sprite`, with zero texture
    duplication.
@@ -394,7 +411,7 @@ it carries the real sizes and layout settings, read off the prefabs. Summary onl
 - `ManualSlot.prefab` — reserved space for one-off art, magenta placeholder, reported at run end.
 - `TextBlock.prefab` — bulleted multi-line TMP; auto-height. `spriteAsset` is `NULL` by default —
   assign explicitly whenever using inline `<sprite>` tags. **Three fixed font sizes, never per page:**
-  32 for page copy and the footer, 40 for `SpecialPanel/Label`, 25 for `SpecialPanel/OptionalTextBlock`.
+  32 for page copy, 40 for `SpecialPanel/Label`, 25 for `SpecialPanel/OptionalTextBlock`.
 
 **`Editor/` (real C# utilities, not prose — call these instead of re-deriving anything):**
 - `PaytableGridMath.cs` (`CGS.PaytableLibrary.PaytableGridMath`) — `DistributeRows(n)` tells you how
