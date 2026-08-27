@@ -173,10 +173,33 @@ magenta placeholder, a reported mismatch, an extra page — over one that silent
   `voffset` is one constant per font — `capLine × faceScale / (2 × pointSize)`, **5.11em** for the
   project font — and does not change with `P`: `bearingY = 64` centres the sprite on the baseline,
   and this lifts it onto the text's optical middle. Measured: it lands within 0.1 unit of centre.
-  Derivation, and the general form `P = 100 × R × capLine_em`:
+  Derivation, and the general form `P = 100 × R × capLine_em / 2`:
   `skills/cgs-atlas-builder/SKILL.md` → "Формулы".
 
   Never "fix" a soft, oversized or misaligned sprite by editing the sprite asset — change `P`.
+- **Every TextBlock's text opens with `<line-height=125%>`.** A sprite at `P=250%` has a line box of
+  96.4 units against a plain line's 52, so TMP grows only the lines that contain a sprite. Left
+  alone, the leading comes out ragged — measured steps in a real mixed block were 84.7 / 97.7 /
+  114.9 depending on whether the line and its neighbour carry sprites, a 36% spread that reads as
+  broken layout. `lineSpacing` cannot fix this: it adds the same constant to every line and preserves
+  the unevenness. Only the `line-height` tag pins all lines to one height.
+
+  Apply it to **every** text block, not only the ones with sprites, so the rhythm is identical on
+  every page of the paytable.
+
+  125% is the tightest value that clears the sprite: the line base is 52, the prefab's `lineSpacing`
+  contributes `1020 × 0.001 × 32 = 32.7`, so `52 × N/100 + 32.7 ≥ 96.4` gives `N ≥ 122.5`. At 100%
+  consecutive sprite-bearing lines overlap by 12 units. **Re-derive `N` if `P`, the font size or
+  `lineSpacing` changes** — the invariant is `line box of the tallest element ≤ line step`.
+
+  The tag must be in the string **before** height is measured for pagination — it changes
+  `preferredHeight` (456.8 → 584.7 on a four-paragraph sample), so measuring first and prepending
+  after would mis-page.
+- **`paragraphSpacing` separates paragraphs; `line-height` must not be asked to.** With every line
+  step equal, a wrapped continuation line and a new bullet sit exactly the same distance apart and
+  the paragraph structure disappears. `paragraphSpacing` moves only the `\n` boundaries and leaves
+  wraps alone: at **500** a paragraph break steps 113.7 against a wrap's 97.7. Units are
+  `value × 0.001 × fontSize`, so 500 buys 16 units — half a cap height — for +7% page height.
 - **Never mutate a donor.** The old game's existing prefab is read-only input for system detection.
   The block library's shells/blocks are read-only input for cloning. The ONLY thing you ever write to
   is the brand-new `PaytableDialog<Game>.prefab` you're building.

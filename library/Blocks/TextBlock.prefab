@@ -146,7 +146,7 @@ MonoBehaviour:
   m_wordSpacing: 0
   m_lineSpacing: 1020
   m_lineSpacingMax: 0
-  m_paragraphSpacing: 0
+  m_paragraphSpacing: 500
   m_charWidthMaxAdj: 0
   m_TextWrappingMode: 1
   m_wordWrappingRatios: 0.4

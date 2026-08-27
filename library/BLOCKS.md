@@ -156,6 +156,11 @@ the vertical axis so height follows the content. Ships with bulleted placeholder
 continuation. `spriteAsset` is NULL by default: assign the game's TMP Sprite Asset explicitly before
 using inline `<sprite name="X">` tags.
 
+`lineSpacing` is 1020 (≈ one extra font size of leading) and `paragraphSpacing` is **500**, which
+separates a new bullet from a wrapped continuation line. Every text string written into this block
+must **open with `<line-height=125%>`** — without it TMP grows only the lines that contain an inline
+sprite and the leading comes out ragged. See the skill's sprite-tag section for the derivation.
+
 ### Font size — three fixed values, never per page
 | Where | Size |
 |---|---|
