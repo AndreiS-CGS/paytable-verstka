@@ -81,13 +81,17 @@ namespace CGS.PaytableLibrary
                 // the baseline, which is what makes the vertical nudge one constant per font instead
                 // of a value that has to be recomputed for every <size=P%>. See cgs-atlas-builder's
                 // SKILL.md → "Формулы".
+                //
+                // Integer division on purpose: a float would be interpolated with the current
+                // culture, so a locale that writes decimals with a comma emits "63,5" and corrupts
+                // the YAML. Heights are even by the standard (128), so nothing is lost here.
                 glyphYaml.Append(
 $@"  - m_Index: {i}
     m_Metrics:
       m_Width: {sp.w}
       m_Height: {sp.h}
       m_HorizontalBearingX: 0
-      m_HorizontalBearingY: {sp.h / 2f}
+      m_HorizontalBearingY: {sp.h / 2}
       m_HorizontalAdvance: {sp.w}
     m_GlyphRect:
       m_X: {sp.x}
