@@ -152,19 +152,20 @@ magenta placeholder, a reported mismatch, an extra page — over one that silent
   Without a tag `P` is 100, which renders the sprite exactly one cap-height tall — three to five
   times smaller than any reference, and sitting on the baseline instead of centred on the line. Emit:
   ```
-  <voffset=5.11em><size=250%><sprite name="SYMBOL"></size></voffset>
+  <voffset=5.11em><size=340%><sprite name="SYMBOL"></size></voffset>
   ```
   **`voffset` goes OUTSIDE `size`** — inside, TMP multiplies it by the *scaled* font size and the
   correction moves with `P`.
   **Two size classes, measured off the references** (cap height 11 px there):
-  | Class | In the reference | P at fontSize 32 |
-  |---|---|---|
-  | Symbol art — the normal case | 48–60 px, ≈5× cap | **250%** |
-  | Jackpot badge / logo — wide and flat | 24 px, ≈2.2× cap | **112%** |
+  | Class | In the reference | P at fontSize 32 | Renders |
+  |---|---|---|---|
+  | Symbol art — the normal case | 48–60 px, ≈5× cap | **340%** | 108.8 units, 3.2× cap |
+  | Jackpot badge / logo — wide and flat | 24 px, ≈2.2× cap | **150%** | 48 units, 1.4× cap |
 
-  `P = 100 × R × capLine_em / 2`, where `R` is the ratio measured on the GDD render. **The final
-  halving is required** — the GDD ratio does not carry over one-to-one, and feeding `R` in straight
-  comes out twice too large.
+  `P = 100 × R × capLine_em / 1.5`, where `R` is the ratio measured on the GDD render. **The final
+  division is required** — the GDD ratio does not carry over one-to-one and feeding `R` in straight
+  comes out too large. The divisor is 1.5, not 2: at 2 a wide badge (`GRAND_JACKPOT` is 1423×128,
+  an 11:1 aspect) shrank to 28% of its atlas size and the lettering inside stopped being legible.
 
   Height holds within a class regardless of the art's proportions: a narrow tall stick of dynamite
   and a wide flat sign render the same height. Apparent size differences between them come from the
@@ -173,28 +174,39 @@ magenta placeholder, a reported mismatch, an extra page — over one that silent
   `voffset` is one constant per font — `capLine × faceScale / (2 × pointSize)`, **5.11em** for the
   project font — and does not change with `P`: `bearingY = 64` centres the sprite on the baseline,
   and this lifts it onto the text's optical middle. Measured: it lands within 0.1 unit of centre.
-  Derivation, and the general form `P = 100 × R × capLine_em / 2`:
+  Derivation, and the general form `P = 100 × R × capLine_em / 1.5`:
   `skills/cgs-atlas-builder/SKILL.md` → "Формулы".
 
   Never "fix" a soft, oversized or misaligned sprite by editing the sprite asset — change `P`.
-- **Every TextBlock's text opens with `<line-height=125%>`.** A sprite at `P=250%` has a line box of
-  96.4 units against a plain line's 52, so TMP grows only the lines that contain a sprite. Left
-  alone, the leading comes out ragged — measured steps in a real mixed block were 84.7 / 97.7 /
-  114.9 depending on whether the line and its neighbour carry sprites, a 36% spread that reads as
-  broken layout. `lineSpacing` cannot fix this: it adds the same constant to every line and preserves
-  the unevenness. Only the `line-height` tag pins all lines to one height.
+- **Every TextBlock's text opens with a `<line-height=N%>` tag.** A sprite grows the line box of only
+  the line it sits on — 125.2 units at `P=340%` against a plain line's 52 — so TMP leaves the leading
+  ragged. Measured steps in a real mixed block came out 84.7 / 97.7 / 114.9 depending on whether a
+  line and its neighbour carry sprites: a 36% spread that reads as broken layout. `lineSpacing`
+  cannot fix it — it adds the same constant to every line and preserves the unevenness. Only the
+  `line-height` tag pins all lines to one height.
 
-  Apply it to **every** text block, not only the ones with sprites, so the rhythm is identical on
-  every page of the paytable.
+  **`N` is per block, from the tallest sprite in that block** — not one project-wide constant. At
+  `P=340%` the required value is 180%, and forcing that onto a text-only page would inflate it 49%
+  for nothing.
+  | Tallest sprite in the block | Line box | **N** |
+  |---|---|---|
+  | none, or badges only (`150%`) | 52.0 / 66.3 | **100%** |
+  | symbol art (`340%`) | 125.2 | **180%** |
 
-  125% is the tightest value that clears the sprite: the line base is 52, the prefab's `lineSpacing`
-  contributes `1020 × 0.001 × 32 = 32.7`, so `52 × N/100 + 32.7 ≥ 96.4` gives `N ≥ 122.5`. At 100%
-  consecutive sprite-bearing lines overlap by 12 units. **Re-derive `N` if `P`, the font size or
-  `lineSpacing` changes** — the invariant is `line box of the tallest element ≤ line step`.
+  `N = 100%` is not a no-op: without any tag the steps go uneven, with it they are all 84.7, which
+  already clears a badge's 66.3.
+
+  **Derive `N` by measuring, not by formula.** Set the text, `ForceMeshUpdate()`, read the largest
+  `textInfo.lineInfo[i].lineHeight`, then require `52 × N/100 + lineSpacing × 0.001 × fontSize ≥` that
+  box, and rewrite the string with the tag. The closed form depends on font descent, `voffset` and
+  which of the two exceeds the other, so measuring is both shorter and correct when any of `P`, the
+  font size or `lineSpacing` moves. At `P=340%`: 178% is exactly flush, 175% still overlaps by 1.5,
+  180% leaves 1.1 of clearance.
 
   The tag must be in the string **before** height is measured for pagination — it changes
-  `preferredHeight` (456.8 → 584.7 on a four-paragraph sample), so measuring first and prepending
-  after would mis-page.
+  `preferredHeight` substantially (the jackpot sample went 799.7 → 1126.2 of an available 1385), so
+  measuring first and prepending after would mis-page. Expect sprite-heavy pages to split more often
+  than they did at smaller `P`.
 - **`paragraphSpacing` separates paragraphs; `line-height` must not be asked to.** With every line
   step equal, a wrapped continuation line and a new bullet sit exactly the same distance apart and
   the paragraph structure disappears. `paragraphSpacing` moves only the `\n` boundaries and leaves
@@ -385,9 +397,10 @@ Write the mapping to `_verstka/block_mapping.md`.
    reference: full title, every symbol resolved (not literal `<sprite…>` text), numbers match
    `win_tables.yaml`, nothing clipped.
    **Check the inline sprites specifically**, since they are the easiest thing to get silently wrong:
-   are they roughly 2.5× the height of a capital letter (about 1.1× for jackpot badges), and is the
+   are they roughly 3.2× the height of a capital letter (about 1.4× for jackpot badges), and is the
    text sitting at their vertical middle rather than at their top or bottom edge? A sprite the same
-   height as the text means the size tag is missing. Fix and re-render until it matches, then complete that page's
+   height as the text means the size tag is missing. Check too that no line with a sprite touches its
+   neighbour — that means `N` in the `line-height` tag is too small for this block. Fix and re-render until it matches, then complete that page's
    task before moving to the next.
 
 ### Phase 6 — Finalize

@@ -158,8 +158,10 @@ using inline `<sprite name="X">` tags.
 
 `lineSpacing` is 1020 (≈ one extra font size of leading) and `paragraphSpacing` is **500**, which
 separates a new bullet from a wrapped continuation line. Every text string written into this block
-must **open with `<line-height=125%>`** — without it TMP grows only the lines that contain an inline
-sprite and the leading comes out ragged. See the skill's sprite-tag section for the derivation.
+must **open with a `<line-height=N%>` tag** — without it TMP grows only the lines that contain an
+inline sprite and the leading comes out ragged. `N` is per block, from the tallest sprite in it:
+**100%** with no sprites or badges only, **180%** with symbol art at `P=340%`. See the skill's
+sprite-tag section for how to derive it.
 
 ### Font size — three fixed values, never per page
 | Where | Size |
