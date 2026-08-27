@@ -210,19 +210,25 @@ P = 100 × R × capLine_em
 Готовый вид тега:
 
 ```
-<size=500%><voffset=0.51em><sprite name="SYMBOL"></voffset></size>
+<voffset=5.11em><size=500%><sprite name="SYMBOL"></size></voffset>
 ```
 
 **Вертикальная поправка** — одна константа на шрифт, не зависит от `P`:
 
 ```
-voffset = capLine_em / 2
-capLine_em = font.capLine × font.faceInfo.scale × orthoMult / font.faceInfo.pointSize
+voffset_em = font.capLine × font.faceInfo.scale / (2 × font.faceInfo.pointSize)
 ```
 
-Считается один раз для того font asset'а, которым набран Body: взять из его `faceInfo` поля
-`capLine`, `scale` и `pointSize`, подставить, получить константу в em. Например при
-`capLine 33, scale 13, pointSize 42` и `orthoMult = 0.1` выходит `capLine_em ≈ 1.02` → `voffset ≈ +0.51em`.
+Например при `capLine 33, scale 13, pointSize 42` → `voffset = 5.11em`. Проверено замером: с этим
+значением центр спрайта совпадает с оптическим центром строки (расхождение 0.1 единицы).
+
+> **Тег `voffset` ставится СНАРУЖИ тега `size`, и в формуле нет `orthoMult`.** Обе тонкости из
+> одной строки TMP (`TMP_Text.cs`, обработка em-варианта тега):
+> `m_baselineOffset = value × orthoMult × m_currentFontSize`.
+> Во-первых, `orthoMult` тут уже присутствует, поэтому подставлять `capLine_em` (в котором он тоже
+> учтён) — значит применить его дважды и получить в 10 раз меньше нужного. Во-вторых, множитель —
+> это **текущий** кегль: внутри `<size=500%>` он впятеро больше, и поправка уезжает вместе с `P`.
+> Снаружи она от `P` не зависит, что и требуется.
 
 Отношение к высоте прописной: `spriteHeight / capH = P / (100 × capLine_em)`.
 

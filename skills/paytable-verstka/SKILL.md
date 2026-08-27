@@ -152,8 +152,10 @@ magenta placeholder, a reported mismatch, an extra page — over one that silent
   Without a tag `P` is 100, which renders the sprite exactly one cap-height tall — three to five
   times smaller than any reference, and sitting on the baseline instead of centred on the line. Emit:
   ```
-  <size=500%><voffset=0.51em><sprite name="SYMBOL"></voffset></size>
+  <voffset=5.11em><size=500%><sprite name="SYMBOL"></size></voffset>
   ```
+  **`voffset` goes OUTSIDE `size`** — inside, TMP multiplies it by the *scaled* font size and the
+  correction moves with `P`.
   **Two size classes, measured off the references** (cap height 11 px there):
   | Class | In the reference | P at fontSize 32 |
   |---|---|---|
@@ -164,9 +166,10 @@ magenta placeholder, a reported mismatch, an extra page — over one that silent
   and a wide flat sign render the same height. Apparent size differences between them come from the
   art's own aspect, not from a different tag — only the two classes above differ by tag.
 
-  `voffset` is one constant per font (`capLine_em / 2`, ≈0.51em for the project font) and does NOT
-  change with `P`: `bearingY = 64` centres the sprite on the baseline, and this lifts it onto the
-  text's optical middle. Derivation and the general formula `P = 100 × R × capLine_em`:
+  `voffset` is one constant per font — `capLine × faceScale / (2 × pointSize)`, **5.11em** for the
+  project font — and does not change with `P`: `bearingY = 64` centres the sprite on the baseline,
+  and this lifts it onto the text's optical middle. Measured: it lands within 0.1 unit of centre.
+  Derivation, and the general form `P = 100 × R × capLine_em`:
   `skills/cgs-atlas-builder/SKILL.md` → "Формулы".
 
   Never "fix" a soft, oversized or misaligned sprite by editing the sprite asset — change `P`.
