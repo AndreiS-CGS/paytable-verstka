@@ -148,3 +148,43 @@ name through it, so `Symbols.md` can be handed straight to `cgs-atlas-builder`:
 Check one way only — **every token must have a sprite, not the reverse.** An atlas legitimately
 contains sprites absent from the rules text: grid symbols (card ranks, PICs) come from the Pay Grid
 and may never appear as a token.
+
+---
+
+## Colour sampling (`scripts/title_color.py`, `scripts/feature_color.py`)
+
+Companion tools for reading the one thing the GDD text does not carry: **colour**. Titles are plain
+`<strong>` with no styling, so title and feature-mention colours have to come off the screenshots.
+Text content never does — see the division of authority in `paytable-verstka`.
+
+Dependencies: `pillow`, `numpy`, `scipy`. Install in a venv, never into system Python. All three are
+cross-platform; do not shell out to `sips` or any other OS-specific tool.
+
+### `title_color.py <image>` — title colour
+
+Titles sit in a fixed band on every page of a game — chrome-level layout, so locate it once and
+reuse. Glyphs are pure saturated primaries, so the sampler filters to `max ≥ 200 && min ≤ 80`, which
+also rejects the gold frame chrome that otherwise dominates that band.
+
+- Colour is **per word-run**, not per title: one title can carry several, with connector words
+  falling back to the default.
+- Pages with no title (continuations, line-configuration pages) correctly return nothing.
+- `--all-bands` disables the title-shape filter. That filter is geometric, so wide centred body rows
+  and diagram annotation labels can still slip through — the GDD text says how many titles a page
+  really has, and that count is the authority.
+
+### `feature_color.py <image>` — coloured feature mentions in body copy
+
+Body copy is small and fully anti-aliased, so the pure primaries a title gives never survive there;
+the same hue measures far darker with no dominant value. Detection therefore classifies by **hue
+family** and snaps to the title palette. Coloured pixels appear on nearly every row (inline sprites),
+so glyphs are isolated as connected components and separated from sprite art by height rather than by
+row-banding.
+
+`--crops DIR` writes one PNG per run for reading. **The string match is not optional:** three
+different things in the body share the same size and colours, and only their text separates them —
+feature mentions (colour them), jackpot logos (bevelled sprite art, already a sprite, skip), and
+diagram annotation labels (neither a title nor a token, ignore).
+
+Any colour-sampling pass must also **skip placeholder rects** — an unfilled slot is a large solid
+magenta fill, and counting it as content dominates the statistics.

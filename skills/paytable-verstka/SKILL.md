@@ -108,7 +108,9 @@ magenta placeholder, a reported mismatch, an extra page — over one that silent
   still shows, and a value already present in the text can be blank in the image. Build from the
   **Clean** text and treat the screenshot as a layout reference, not a content source. Two
   exceptions, because the text simply doesn't hold the data: **payout numbers** (the Pay Table Pages
-  section carries none) and **colours** (titles are plain `<strong>` with no styling).
+  section carries none) and **colours** (titles are plain `<strong>` with no styling). Sample colours
+  with `paytable-pipeline`'s `scripts/title_color.py` and `scripts/feature_color.py` — don't eyeball
+  them, and don't re-implement the sampling.
 - **The unit of work is a LOGICAL BLOCK, not a page.** A logical block = one GDD section
   (`## Page N` + bold header). In the GDD each block starts on a new page; our output must too.
   **If one GDD page carries two `Title + text` sections, split it into TWO logical pages** — that
