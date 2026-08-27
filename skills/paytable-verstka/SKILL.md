@@ -342,12 +342,15 @@ float meshBot = tm.rectTransform.TransformPoint(new Vector3(0, b.center.y-b.exte
 float meshTop = tm.rectTransform.TransformPoint(new Vector3(0, b.center.y+b.extents.y, 0)).y;
 bool overflow = (fBot - meshBot > 8) || (meshTop - fTop > 8);
 ```
-**Fix (loop until every page passes):** text overflow → split into a continuation page. Never cut a
-bullet mid-way; re-measure and split again if still overflowing. **Carry the title across: the
-continuation page gets the SAME `Title` as the page it was split from** — identical text and colours,
-since it is still the same section — and the same `Header` category. Only the page counter differs. grid overflow/empty cells → fewer
-categories per page or resize the grid to the symbol count. Re-run Phase 6 after any split (slots,
-numbering, `cards[]`).
+**Fix — loop until every page passes:**
+- **Text overflow** → split into a continuation page. Never cut a bullet mid-way; re-measure and
+  split again if it still overflows. **Carry the heading across:** the continuation page gets the
+  SAME `Title` as the page it was split from — identical text and colours, since it is still the same
+  section — and the same `Header` category. Only the page counter differs.
+- **Grid overflow or empty cells** → fewer symbols per page, or switch the grid down to the count you
+  actually have (6→3+3, 5→3+2, 4→2+2).
+
+Re-run Phase 6 after any split — slots, numbering and `cards[]` all shift.
 
 **Rendering the QA screenshot — technical setup:**
 - Use **Game View / Play Mode**, not Scene View, for anything you're actually judging visually. Scene
