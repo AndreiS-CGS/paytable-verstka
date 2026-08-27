@@ -148,12 +148,28 @@ magenta placeholder, a reported mismatch, an extra page — over one that silent
 - **GRAND/MAJOR/MINOR/MINI = behavioral jackpot designations, NEVER numeric.** No numeric jackpot
   ladder exists in the corpus; "Available Jackpots" = badges stacked in a panel, no numbers.
 - **All paytables are English only.**
-- **Inline sprite size comes from a `<size=P%>` tag, never from editing the sprite asset.** The TMP
-  Sprite Asset is standardised once (all sprites 128 px tall, `faceInfo.scale = 1/orthoMult`,
-  `bearingY = 64`), after which `spriteHeight = fontSize × P/100` — so `P` is directly the sprite
-  height as a percentage of the text size. Vertical nudge is one constant per font. Full derivation
-  and the values: `skills/cgs-atlas-builder/SKILL.md` → "Формулы". Never "fix" a soft or misaligned
-  sprite by editing the asset — change `P`.
+- **Every inline sprite carries a size tag AND a voffset. A bare `<sprite name="X">` is a bug.**
+  Without a tag `P` is 100, which renders the sprite exactly one cap-height tall — three to five
+  times smaller than any reference, and sitting on the baseline instead of centred on the line. Emit:
+  ```
+  <size=500%><voffset=0.51em><sprite name="SYMBOL"></voffset></size>
+  ```
+  **Two size classes, measured off the references** (cap height 11 px there):
+  | Class | In the reference | P at fontSize 32 |
+  |---|---|---|
+  | Symbol art — the normal case | 48–60 px, ≈5× cap | **500%** |
+  | Jackpot badge / logo — wide and flat | 24 px, ≈2.2× cap | **225%** |
+
+  Height holds within a class regardless of the art's proportions: a narrow tall stick of dynamite
+  and a wide flat sign render the same height. Apparent size differences between them come from the
+  art's own aspect, not from a different tag — only the two classes above differ by tag.
+
+  `voffset` is one constant per font (`capLine_em / 2`, ≈0.51em for the project font) and does NOT
+  change with `P`: `bearingY = 64` centres the sprite on the baseline, and this lifts it onto the
+  text's optical middle. Derivation and the general formula `P = 100 × R × capLine_em`:
+  `skills/cgs-atlas-builder/SKILL.md` → "Формулы".
+
+  Never "fix" a soft, oversized or misaligned sprite by editing the sprite asset — change `P`.
 - **Never mutate a donor.** The old game's existing prefab is read-only input for system detection.
   The block library's shells/blocks are read-only input for cloning. The ONLY thing you ever write to
   is the brand-new `PaytableDialog<Game>.prefab` you're building.
@@ -337,7 +353,11 @@ Write the mapping to `_verstka/block_mapping.md`.
    stays identical regardless of slot.
 5. **QA render inline** after each page (see Phase 7 for the technical render setup) — compare to the
    reference: full title, every symbol resolved (not literal `<sprite…>` text), numbers match
-   `win_tables.yaml`, nothing clipped. Fix and re-render until it matches, then complete that page's
+   `win_tables.yaml`, nothing clipped.
+   **Check the inline sprites specifically**, since they are the easiest thing to get silently wrong:
+   are they roughly 5× the height of a capital letter (2.2× for jackpot badges), and is the text
+   sitting at their vertical middle rather than at their top or bottom edge? A sprite the same height
+   as the text means the size tag is missing. Fix and re-render until it matches, then complete that page's
    task before moving to the next.
 
 ### Phase 6 — Finalize
