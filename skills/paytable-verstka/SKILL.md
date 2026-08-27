@@ -125,10 +125,20 @@ magenta placeholder, a reported mismatch, an extra page — over one that silent
   **If one GDD page carries two `Title + text` sections, split it into TWO logical pages** — that
   keeps `Title` a single page-chrome field instead of promoting it to a body-level block. Such a page
   shows two title bands at different heights in the reference image.
-- **Page order = the GDD's `## Page N` headings, and nothing else.** The `PAGE X/Y` counter printed
-  inside a screenshot is part of that same stale render — informative, never authoritative. Neither
-  are attachment filenames (`Help_NN_*`), which are legacy asset names. Extraction already numbers
-  `PageN.jpg` by GDD order, so the files line up as-is.
+- **Page order = the GDD's `## Page N` headings read top to bottom, and nothing else.** The
+  `PAGE X/Y` counter printed inside a screenshot is part of that same stale render — informative,
+  never authoritative. Neither are attachment filenames (`Help_NN_*`), which are legacy asset names.
+  Extraction already numbers `PageN.jpg` by GDD order, so the files line up as-is.
+
+  Confirmed as a hard rule, so do not weigh the counter against the text and do not ask:
+  - The counter is measurably from a different paytable. On one game it read `PAGE X/16` while the
+    build came to 29 pages — a different page inventory entirely, so its numbering cannot transfer.
+  - There is no house convention to fall back on. Across 60 shipped paytable prefabs, 42 put the
+    rules pages first and 18 put Pay Table first. Neither order is "how we do it", which is exactly
+    why the GDD text is the only authority.
+  - Where a screenshot and the GDD text disagree about anything structural, the text wins — the same
+    call already made for portrait/landscape, where cropped screenshots forced Summary to be
+    authoritative.
 - **In-game page count is NOT known up front and won't match the GDD** — you discover the final page
   count by filling pages and checking overflow.
 - **Symbols are split across THREE pages: specials, majors, minors** — even when the GDD reference
