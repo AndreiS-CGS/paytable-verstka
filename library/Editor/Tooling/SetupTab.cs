@@ -22,6 +22,7 @@ namespace CGS.PaytableLibrary.Tooling
         List<string> _envLines = new List<string>();
         string _confluenceEmail;
         string _patInput = "";
+        PackageUpdate.Result _update;
         bool _installUserWide;
 
         public SetupTab(PaytableToolsWindow w)
@@ -188,22 +189,96 @@ namespace CGS.PaytableLibrary.Tooling
             }
             catch (Exception e) { smoke = "threw " + e.GetType().Name; }
 
-            var detail = new StringBuilder()
+            // The commit, not just the version: package.json's version does not change per
+            // commit, so two people on wildly different code both read "0.2.0". Without the hash
+            // a colleague cannot tell whether they are current, and neither can you from their
+            // screenshot.
+            var commit = PackageUpdate.ResolvedHash();
+            var commitShort = commit.Length >= 12 ? commit.Substring(0, 12) : commit;
+
+            var d = new StringBuilder()
                 .AppendLine($"{info.name}@{info.version}")
                 .AppendLine($"source:       {info.source}")
+                .AppendLine($"commit:       {(commit.Length > 0 ? commitShort : "n/a (not a git source)")}")
                 .AppendLine($"resolvedPath: {info.resolvedPath}")
                 .AppendLine($"writable:     {PaytablePaths.PackageIsWritable}")
                 .AppendLine($"Skills~:      {(Directory.Exists(PaytablePaths.SkillsSourceDir) ? "present" : "MISSING")}")
-                .AppendLine($"DistributeRows(5) = {smoke}  (expected 3,2)")
-                .ToString();
+                .AppendLine($"DistributeRows(5) = {smoke}  (expected 3,2)");
+
+            if (_update != null)
+            {
+                d.AppendLine();
+                switch (_update.State)
+                {
+                    case PackageUpdate.State.UpToDate:
+                        d.AppendLine($"Up to date with {_update.Url}" +
+                                     (_update.Ref.Length > 0 ? " at " + _update.Ref : ""));
+                        break;
+                    case PackageUpdate.State.Behind:
+                        d.AppendLine($"A newer commit exists: {_update.RemoteShort}");
+                        d.AppendLine($"you have:              {_update.LocalShort}");
+                        d.AppendLine();
+                        d.AppendLine("Updating removes the pin from packages-lock.json (backing it up)");
+                        d.AppendLine("and drops the cached copy, then asks Unity to resolve. Unity will");
+                        d.AppendLine("reload afterwards. Client.Resolve() on its own would just restore");
+                        d.AppendLine("the pin, which is why a plain refresh never picks up new commits.");
+                        break;
+                    default:
+                        d.AppendLine(_update.Message);
+                        break;
+                }
+            }
+
+            var detail = d.ToString();
+            var versionLine = $"{info.version}" +
+                              (commitShort.Length > 0 ? $" ({commitShort})" : "") +
+                              $", source {info.source}";
 
             if (!Directory.Exists(PaytablePaths.SkillsSourceDir))
                 c.Set(CheckStatus.Wrong, "Skills~ missing from the package", detail);
             else if (smoke != "3,2")
                 c.Set(CheckStatus.Wrong, "library C# did not load correctly", detail);
+            else if (_update != null && _update.State == PackageUpdate.State.Behind)
+                c.Set(CheckStatus.Warning, versionLine + " — update available", detail);
             else
-                c.Set(CheckStatus.Ok, $"{info.version}, source {info.source}", detail);
+                c.Set(CheckStatus.Ok, versionLine, detail);
+
             c.Recheck = CheckPackage;
+            c.FixWritesOutsideProject = false;
+            if (_update != null && _update.State == PackageUpdate.State.Behind)
+            {
+                c.FixLabel = "Update";
+                c.Fix = ApplyUpdate;
+            }
+            else if (PaytablePaths.Source == UnityEditor.PackageManager.PackageSource.Git)
+            {
+                c.FixLabel = "Check for updates";
+                c.Fix = CheckForUpdate;
+            }
+            else { c.FixLabel = null; c.Fix = null; }
+        }
+
+        void CheckForUpdate()
+        {
+            PackageUpdate.StartCheck(_w, r => { _update = r; CheckPackage(); _w.Repaint(); });
+        }
+
+        void ApplyUpdate()
+        {
+            if (!EditorUtility.DisplayDialog(
+                    "Update the package?",
+                    $"Fetch {_update.RemoteShort} in place of {_update.LocalShort}.\n\n" +
+                    "This edits Packages/packages-lock.json (keeping a .bak), deletes the cached\n" +
+                    "copy under Library/PackageCache, and reloads the editor.",
+                    "Update", "Cancel"))
+                return;
+
+            if (PackageUpdate.Apply(out var report))
+            {
+                _update = null;
+                Debug.Log("[Paytable Tool] " + report);
+            }
+            else Debug.LogError("[Paytable Tool] " + report);
         }
 
         void CheckUnityMcp()
