@@ -27,8 +27,28 @@ namespace CGS.PaytableLibrary.Tooling
         public SetupTab(PaytableToolsWindow w)
         {
             _w = w;
-            _confluenceEmail = EditorPrefs.GetString("CGS.Paytable.Setup.ConfluenceEmail", "");
+            // Seed from the config FILE, not from EditorPrefs. The file is what the Python scripts
+            // read, so it is the only real state; EditorPrefs is a mirror, and a mirror that comes
+            // back empty after a domain reload is worse than no mirror — the empty field then gets
+            // written back over a perfectly good setting on the next Save.
+            _confluenceEmail = ReadConfig("CONFLUENCE_EMAIL");
+            if (string.IsNullOrEmpty(_confluenceEmail))
+                _confluenceEmail = EditorPrefs.GetString("CGS.Paytable.Setup.ConfluenceEmail", "");
             _installUserWide = EditorPrefs.GetBool("CGS.Paytable.Setup.InstallUserWide", false);
+        }
+
+        /// <summary>Reads one key out of the flat config file we write ourselves.</summary>
+        static string ReadConfig(string key)
+        {
+            try
+            {
+                var p = PaytablePaths.ToolsConfigFile;
+                if (p == null || !File.Exists(p)) return "";
+                var m = System.Text.RegularExpressions.Regex.Match(
+                    File.ReadAllText(p), "\"" + key + "\"\\s*:\\s*\"([^\"]*)\"");
+                return m.Success ? m.Groups[1].Value : "";
+            }
+            catch { return ""; }
         }
 
         public void EnsureChecks()
@@ -585,27 +605,48 @@ namespace CGS.PaytableLibrary.Tooling
                 {
                     if (GUILayout.Button("Save settings", GUILayout.Width(120))) SaveConfluenceSettings();
                     GUILayout.FlexibleSpace();
-                    _installUserWide = GUILayout.Toggle(_installUserWide,
+                    var wide = GUILayout.Toggle(_installUserWide,
                         "install skills user-wide (~/.claude/skills)");
+                    if (wide != _installUserWide)
+                    {
+                        // Persisted immediately and on its own. It used to ride along with
+                        // "Save settings", which meant toggling a checkbox forced a write of every
+                        // other field — including an empty email over a working one.
+                        _installUserWide = wide;
+                        EditorPrefs.SetBool("CGS.Paytable.Setup.InstallUserWide", _installUserWide);
+                        CheckSkills();
+                    }
                 }
             }
         }
 
         void SaveConfluenceSettings()
         {
-            EditorPrefs.SetString("CGS.Paytable.Setup.ConfluenceEmail", _confluenceEmail ?? "");
             EditorPrefs.SetBool("CGS.Paytable.Setup.InstallUserWide", _installUserWide);
 
             // Non-secret settings go to the config file the Python scripts read. Never ~/.zshrc:
             // shell-specific, useless on Windows, and invisible to a GUI-launched Unity.
-            var cfg = PaytablePaths.ToolsConfigFile;
-            if (cfg != null)
+            //
+            // MERGE, never replace, and never write an empty value over a stored one. Replacing
+            // wholesale is how pressing this button once wiped a working CONFLUENCE_EMAIL: the
+            // in-memory field was blank after a domain reload, and the blank won.
+            var email = _confluenceEmail;
+            if (string.IsNullOrWhiteSpace(email)) email = ReadConfig("CONFLUENCE_EMAIL");
+            if (string.IsNullOrWhiteSpace(email))
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(cfg));
-                var json = "{\n" +
-                           $"  \"CONFLUENCE_EMAIL\": {Esc(_confluenceEmail)}\n" +
-                           "}\n";
-                File.WriteAllText(cfg, json);
+                Debug.LogWarning("[Paytable Tool] CONFLUENCE_EMAIL is empty — leaving the stored " +
+                                 "value alone rather than clearing it.");
+            }
+            else
+            {
+                EditorPrefs.SetString("CGS.Paytable.Setup.ConfluenceEmail", email);
+                _confluenceEmail = email;
+                var cfg = PaytablePaths.ToolsConfigFile;
+                if (cfg != null)
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(cfg));
+                    File.WriteAllText(cfg, "{\n  \"CONFLUENCE_EMAIL\": " + Esc(email) + "\n}\n");
+                }
             }
 
             if (!string.IsNullOrEmpty(_patInput))
