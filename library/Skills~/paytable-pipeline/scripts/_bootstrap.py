@@ -121,8 +121,9 @@ def require(*modules):
         f"{'' if venv else '  (does not exist)'}\n\n"
         f"Fix it in Unity: PlayStudios > Slot Tools > Paytable Tool > Setup.\n"
         f"Or by hand:\n"
-        f"  python3 -m venv {_VENV_DIR}\n"
-        f"  {_VENV_DIR}/bin/python -m pip install -r <repo>/requirements.txt\n"
+        f"  {'python' if os.name == 'nt' else 'python3'} -m venv {_VENV_DIR}\n"
+        f"  {_interpreter_in(_VENV_DIR) or (_VENV_DIR / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python'))}"
+        f" -m pip install -r <repo>/requirements.txt\n"
     )
 
 

@@ -228,12 +228,14 @@ namespace CGS.PaytableLibrary.Tooling
             sb.AppendLine("- Working dir: " + work);
             sb.AppendLine("- Block library: " + PaytablePaths.PackageName +
                           " resolved at " + PaytablePaths.PackageRoot);
-            sb.AppendLine("- Python: the scripts re-exec themselves into " + PaytablePaths.VenvPython +
-                          "; invoke them with plain `python3` and let them switch.");
-
-            var profile = EditorPrefs.GetString("CGS.Paytable.Setup.ChromeProfile", "");
-            if (!string.IsNullOrEmpty(profile))
-                sb.AppendLine("- Confluence auth: browser cookies, Chrome profile \"" + profile + "\".");
+            // Do not name a specific interpreter: `python3` does not exist on a stock Windows
+            // Python install (that ships python.exe and the py launcher). Any working interpreter
+            // is fine — the scripts re-exec themselves.
+            sb.AppendLine("- Python: invoke the scripts with whatever interpreter is on PATH " +
+                          (PaytablePaths.IsWindows ? "(`python` or `py`)" : "(`python3`)") +
+                          "; each one re-execs itself into " + PaytablePaths.VenvPython + ".");
+            sb.AppendLine("- Confluence auth: API token at " + PaytablePaths.ConfluencePatFile +
+                          " plus CONFLUENCE_EMAIL. There is no browser/cookie path.");
 
             var mcp = _w.Setup.Get(CheckId.UnityMcp);
             sb.AppendLine("- unityMCP: " +

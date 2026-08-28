@@ -55,6 +55,11 @@ namespace CGS.PaytableLibrary.Tooling
                 }
                 foreach (var d in SafeDirs(@"C:\", "Python3*"))
                     yield return Path.Combine(d, "python.exe");
+                // The py launcher is the one thing a stock Windows Python install always puts on
+                // PATH, and it is how you reach an interpreter that is not where you guessed.
+                var winDir = Environment.GetEnvironmentVariable("WINDIR");
+                if (!string.IsNullOrEmpty(winDir))
+                    yield return Path.Combine(winDir, "py.exe");
                 yield break;
             }
 
