@@ -214,6 +214,11 @@ namespace CGS.PaytableLibrary.Tooling
                         d.AppendLine($"Up to date with {_update.Url}" +
                                      (_update.Ref.Length > 0 ? " at " + _update.Ref : ""));
                         break;
+                    case PackageUpdate.State.NoLocalPin:
+                        d.AppendLine($"Remote is at {_update.RemoteShort}, but this project has no " +
+                                     "pinned commit yet.");
+                        d.AppendLine(_update.Message);
+                        break;
                     case PackageUpdate.State.Behind:
                         d.AppendLine($"A newer commit exists: {_update.RemoteShort}");
                         d.AppendLine($"you have:              {_update.LocalShort}");

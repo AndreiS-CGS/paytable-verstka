@@ -18,7 +18,7 @@ namespace CGS.PaytableLibrary.Tooling
     /// </summary>
     public static class PackageUpdate
     {
-        public enum State { Unknown, NotGit, UpToDate, Behind, CheckFailed }
+        public enum State { Unknown, NotGit, UpToDate, Behind, CheckFailed, NoLocalPin }
 
         public sealed class Result
         {
@@ -146,9 +146,24 @@ namespace CGS.PaytableLibrary.Tooling
                     return;
                 }
                 result.RemoteHash = m.Groups[1].Value;
-                result.State = string.Equals(result.RemoteHash, result.LocalHash, StringComparison.OrdinalIgnoreCase)
-                    ? State.UpToDate
-                    : State.Behind;
+                if (string.IsNullOrEmpty(result.LocalHash))
+                {
+                    // Unity writes the lock entry only after a resolve finishes, so between
+                    // clearing the pin and that write there is nothing to compare against.
+                    // Comparing anyway would read as "behind" every time and offer an update that
+                    // fetches what is already there.
+                    result.State = State.NoLocalPin;
+                    result.Message = "packages-lock.json has no entry for this package yet — Unity " +
+                                     "writes it once a resolve completes. Nothing to compare " +
+                                     "against; re-check in a moment.";
+                }
+                else
+                {
+                    result.State = string.Equals(result.RemoteHash, result.LocalHash,
+                                                 StringComparison.OrdinalIgnoreCase)
+                        ? State.UpToDate
+                        : State.Behind;
+                }
                 done(result);
             });
         }
