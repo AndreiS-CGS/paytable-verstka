@@ -38,10 +38,11 @@ is the only place; check for a plugin-managed skills directory too (look at how 
 skill on this machine is set up, or check config). Then, for each of `paytable-pipeline`,
 `cgs-atlas-builder`, `paytable-verstka`:
 ```bash
-ln -s "<chosen-path>/skills/<name>" "<wherever-skills-load-from>/<name>"
+cp -R "<chosen-path>/library/Skills~/<name>" "<wherever-skills-load-from>/<name>"
 ```
 Verify: after creating them, confirm the skill list picks up all three (a fresh skill listing should
-show them, or `readlink -f` each symlink and confirm it resolves into `<chosen-path>/skills/<name>`).
+show them, and compare file contents against `<chosen-path>/library/Skills~/<name>` — resolving
+one symlink level is not proof).
 
 ## 4. Point the target Unity project at the library
 - **ASK** which Unity project (path) this is for, if not already obvious from context.

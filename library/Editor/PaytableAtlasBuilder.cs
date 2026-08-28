@@ -12,7 +12,7 @@ namespace CGS.PaytableLibrary
     /// <summary>
     /// Editor-side steps of the cgs-atlas-builder pipeline (see that skill's SKILL.md for the full
     /// picture — steps 1-2, cropping/resizing/packing the raw PNGs into an atlas PNG + coordinate
-    /// JSON, are Python and run BEFORE any of this: skills/cgs-atlas-builder/scripts/).
+    /// JSON, are Python and run BEFORE any of this: the cgs-atlas-builder skill's scripts/).
     /// Every method here operates on files already on disk.
     /// </summary>
     public static class PaytableAtlasBuilder

@@ -2,7 +2,7 @@
 
 Companion to `paytable-verstka`'s SKILL.md. This file documents WHAT is inside each block prefab and
 WHERE to write content into it. It does not repeat the assembly logic (page math, filling rules) —
-see the skill for that. Data format: `skills/paytable-verstka/reference/SCHEMA.md`.
+see the skill for that. Data format: the `paytable-verstka` skill's `reference/SCHEMA.md`.
 
 Values below are read off the actual prefabs, not a spec. If you change a prefab, update this file.
 

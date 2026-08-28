@@ -10,7 +10,8 @@ human to read and translate into commands.
 
 ## Contents
 ```
-skills/
+library/                  — the UPM package `com.cgs.paytablelibrary`
+└── Skills~/              — the three skills; Unity ignores `~` folders, UPM still ships them
 ├── paytable-pipeline/    — extracts Pay Table text/images/symbols from a Confluence GDD
 │   └── scripts/paytable_from_confluence.py
 ├── cgs-atlas-builder/    — packs symbol PNGs into a TMP Sprite Asset + atlas texture
@@ -35,15 +36,19 @@ orchestrates both plus the assembly logic itself. All three share this one repo 
 nothing drifts out of sync between them.
 
 ## Installing the skills (Claude Code)
-Each skill folder needs its own symlink from wherever Claude Code loads skills from on that
-machine, e.g.:
+The skills ship inside the package at `library/Skills~/`, so pulling the package delivers them.
+Install them with the Unity window (`PlayStudios/Slot Tools/Paytable Tool` → Setup), which copies
+each one into `<git repo root>/.claude/skills/<name>`.
+
+To do it by hand, copy the three folders from `library/Skills~/` to that directory — or, when
+working on the skills themselves, symlink them from a local clone so edits are live:
 ```bash
-ln -s "/path/to/paytable-verstka/skills/paytable-pipeline" ~/.claude/skills/paytable-pipeline
-ln -s "/path/to/paytable-verstka/skills/cgs-atlas-builder" ~/.claude/skills/cgs-atlas-builder
-ln -s "/path/to/paytable-verstka/skills/paytable-verstka" ~/.claude/skills/paytable-verstka
+ln -s "/path/to/paytable-verstka/library/Skills~/paytable-pipeline" ~/.claude/skills/paytable-pipeline
+ln -s "/path/to/paytable-verstka/library/Skills~/cgs-atlas-builder"  ~/.claude/skills/cgs-atlas-builder
+ln -s "/path/to/paytable-verstka/library/Skills~/paytable-verstka"   ~/.claude/skills/paytable-verstka
 ```
-(Adjust the target if your Claude Code setup loads skills from a different folder — some setups use
-a plugin-managed skills directory instead of `~/.claude/skills`.)
+Copy — never symlink — when the package came from a git URL: it resolves read-only under
+`Library/PackageCache/` and is wiped on every re-resolve, so a symlink into it dangles silently.
 
 ## Installing `library/` into a Unity project
 
@@ -84,16 +89,7 @@ into any ordinary `Assets/` folder in a local Unity project, let Unity generate 
 import/refresh, then copy the `.meta` back next to the file in this repo (and delete the temporary
 copy from `Assets/`). This bit us once already with `library/Editor/*.cs` — see git history.
 
-## Installing the skills (Claude Code)
-Each skill folder needs its own symlink from wherever Claude Code loads skills from on that
-machine, e.g.:
-```bash
-ln -s "/path/to/paytable-verstka/skills/paytable-pipeline" ~/.claude/skills/paytable-pipeline
-ln -s "/path/to/paytable-verstka/skills/cgs-atlas-builder" ~/.claude/skills/cgs-atlas-builder
-ln -s "/path/to/paytable-verstka/skills/paytable-verstka" ~/.claude/skills/paytable-verstka
-```
-(Adjust the target if your Claude Code setup loads skills from a different folder — some setups use
-a plugin-managed skills directory instead of `~/.claude/skills`.)
+
 
 ## Status
 Live at **https://github.com/AndreiS-CGS/paytable-verstka** (private repo, under the CGS work

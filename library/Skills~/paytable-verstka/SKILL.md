@@ -74,25 +74,31 @@ magenta placeholder, a reported mismatch, an extra page — over one that silent
   never hardcode that this exact path exists on every machine):
   ```
   paytable-verstka/
-  ├── skills/
-  │   ├── paytable-pipeline/    (extraction — its own SKILL.md + scripts/)
-  │   ├── cgs-atlas-builder/    (sprite atlas — its own SKILL.md + scripts/)
-  │   └── paytable-verstka/     (this skill's own SKILL.md + reference/)
-  └── library/                   (the Unity Package, com.cgs.paytablelibrary — see below)
+  └── library/                   (the Unity Package, com.cgs.paytablelibrary)
+      └── Skills~/
+          ├── paytable-pipeline/    (extraction — its own SKILL.md + scripts/)
+          ├── cgs-atlas-builder/    (sprite atlas — its own SKILL.md + scripts/)
+          └── paytable-verstka/     (this skill's own SKILL.md + reference/)
   ```
-  Each `skills/<name>/` is independently symlinked into wherever Claude Code loads skills from on
-  each machine, so all three stay separately invocable ("скачай пейтейбл" still only runs
-  extraction) even though they share one repo and one library.
-  `library/` is a real Unity Package (`package.json` at its root, name `com.cgs.paytablelibrary`).
-  A consuming Unity project references it via a `file:` entry in that project's
-  `Packages/manifest.json`:
+  The skills live INSIDE the package so that pulling the package delivers them too. Unity ignores
+  any folder whose name ends in `~`, so `Skills~/` never becomes Unity assets and needs no `.meta`
+  files, while git and the Package Manager still ship it.
+
+  Each skill is installed independently into wherever Claude Code loads skills from, so all three
+  stay separately invocable ("скачай пейтейбл" still only runs extraction) even though they share
+  one repo and one library.
+
+  A consuming Unity project references the package one of three ways, and they behave differently —
+  never assume which one is active, and never assume the package is writable:
   ```json
+  "com.cgs.paytablelibrary": "https://github.com/AndreiS-CGS/paytable-verstka.git?path=library#main"
   "com.cgs.paytablelibrary": "file:/absolute/path/to/paytable-verstka/library"
   ```
-  — resolved live from the repo, no copy step, no drift between what you edit and what Unity uses.
-  (An embedded-copy-inside-`Packages/` variant also works if a project prefers that — same
-  `package.json` discovery Unity already does for e.g. `com.coplaydev.unity-mcp` — but the `file:`
-  form is what this pipeline assumes unless told otherwise.) Internal layout:
+  The **git** form is what the team uses: it resolves READ-ONLY under `Library/PackageCache/` and is
+  wiped and re-fetched on every re-resolve, so nothing may be written there and nothing may be
+  symlinked into it. The **`file:`** form resolves live from a local clone and is writable — the
+  form to use when iterating on the library itself. An embedded copy or symlink inside `Packages/`
+  behaves like `file:`. Internal layout:
   - `Shells/PaytableDialog_GEL.prefab`, `Shells/PaytableDialog_MCF.prefab` — empty dialog shells
     (slider + indicator + nav, `cards: []`, no pages). Don't rename these without being asked — a
     `.prefab` renamed without its `.meta` desyncs the GUID; if renaming is ever needed, do it inside
@@ -199,7 +205,7 @@ magenta placeholder, a reported mismatch, an extra page — over one that silent
   > difference cancels and every variant looks identical. Take the baseline from a plain capital on
   > the same line.
   Derivation, and the general form `P = 100 × R × capLine_em / 1.5`:
-  `skills/cgs-atlas-builder/SKILL.md` → "Формулы".
+  the `cgs-atlas-builder` skill's SKILL.md → "Формулы".
 
   Never "fix" a soft, oversized or misaligned sprite by editing the sprite asset — change `P`.
 - **Every TextBlock's text opens with a `<line-height=N%>` tag.** A sprite grows the line box of only
@@ -335,7 +341,7 @@ Write the mapping to `_verstka/block_mapping.md`.
    correct-hash lookup, direct-YAML table writing, final import + the 4-point verification
    (`GetSpriteIndexFromName ≥ 0`, `spriteCharacterTable.Count > 0`, `spriteSheet != null`,
    `material.mainTexture != null` — it throws if any fails), and sub-sprite slicing, all as callable
-   methods. See `skills/cgs-atlas-builder/SKILL.md` for the exact call sequence.
+   methods. See the `cgs-atlas-builder` skill for the exact call sequence.
 5. Sub-sprite slicing (`PaytableAtlasBuilder.SliceIntoSubSprites`) — builds a `TextureImporter`
    sprite sheet from the SAME rectangles already in the TMP `spriteGlyphTable`, giving
    individually-addressable Sprite sub-assets usable in a plain `Image.sprite`, with zero texture
@@ -509,7 +515,7 @@ it carries the real sizes and layout settings, read off the prefabs. Summary onl
   `FormatPay(...)`. The `PayBlock.Count`/`Pay` filling rules above.
 - `PaytableAtlasBuilder.cs` (`CGS.PaytableLibrary.PaytableAtlasBuilder`) — the Unity-side half of
   `cgs-atlas-builder` (material, hashes, YAML table writing, import+verify, sub-sprite slicing).
-  See `skills/cgs-atlas-builder/SKILL.md`.
+  See the `cgs-atlas-builder` skill.
 
 ## Known gotchas
 | Problem | Fix |
