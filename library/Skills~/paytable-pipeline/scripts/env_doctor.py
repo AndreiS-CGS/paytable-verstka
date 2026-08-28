@@ -28,6 +28,7 @@ import re
 import subprocess
 import sys
 import shutil
+import ssl
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -253,8 +254,20 @@ def probe_token(email, base_url, timeout=12):
     req = urllib.request.Request(
         base_url.rstrip("/") + "/wiki/rest/api/user/current",
         headers={"Accept": "application/json", "Authorization": "Basic " + cred})
+
+    # macOS python.org builds ship without a wired-up CA store, so plain urllib fails TLS with
+    # CERTIFICATE_VERIFY_FAILED until someone runs Install Certificates.command. requests never
+    # hits this because it bundles certifi — so borrow certifi when it happens to be importable
+    # (it is, in the venv, as a requests dependency) and stay stdlib-only when it is not.
+    ctx = None
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        ctx = None
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
             body = json.loads(r.read().decode("utf-8", "replace"))
             return {"state": "ok",
                     "account": body.get("email") or body.get("displayName") or "(unnamed)"}
@@ -264,6 +277,14 @@ def probe_token(email, base_url, timeout=12):
         # anonymous. The distinction is worth keeping: it says whether to re-issue or to look
         # at the header construction.
         return {"state": "rejected", "http": e.code}
+    except urllib.error.URLError as e:
+        # A TLS trust failure is NOT "offline", and calling it that sends people to check their
+        # network instead of their Python install. Report it as its own thing, with the fix.
+        text = str(e)
+        if "CERTIFICATE_VERIFY_FAILED" in text or isinstance(
+                getattr(e, "reason", None), ssl.SSLCertVerificationError):
+            return {"state": "tls_untrusted", "detail": text[:200]}
+        return {"state": "unreachable", "detail": f"{type(e).__name__}: {text[:160]}"}
     except Exception as e:
         # Offline is not the same as unauthorised, and must never be reported as a failed token.
         return {"state": "unreachable", "detail": f"{type(e).__name__}: {e}"}
@@ -342,6 +363,10 @@ def human(d):
         out.append(f"  token: REJECTED (HTTP {t['http']}) — expired, revoked, or issued under a "
                    f"different account. Create a new one at "
                    f"id.atlassian.com/manage-profile/security/api-tokens")
+    elif t["state"] == "tls_untrusted":
+        out.append("  token: could not be checked — this Python cannot verify TLS certificates.")
+        out.append("         Fix: pip install certifi into the venv, or run"
+                   " /Applications/Python 3.x/Install Certificates.command")
     elif t["state"] == "unreachable":
         out.append(f"  token: could not be checked ({t.get('detail')}) — offline?")
     elif t["state"] != "absent":
@@ -398,6 +423,7 @@ def kv(d):
     out.append(f"confluence.token_state={t['state']}")
     out.append(f"confluence.token_account={t.get('account', '')}")
     out.append(f"confluence.token_http={t.get('http', '')}")
+    out.append(f"confluence.token_detail={(t.get('detail') or '').replace(chr(10), ' ')[:160]}")
     out.append(f"confluence.base_url={c['base_url']}")
     out.append(f"python_extra_present={int(d['python_extra_present'])}")
     return "\n".join(out)

@@ -220,9 +220,13 @@ namespace CGS.PaytableLibrary.Tooling
                 conf.Set(CheckStatus.Blocked, "env_doctor.py not found in the package");
                 return;
             }
-            // allowVenv:false — the doctor must run before the venv exists, and it is stdlib-only
-            // precisely so that works.
-            var python = ExecutableLocator.FindPython(false);
+            // Prefer the venv when it exists: the doctor is stdlib-only so it runs anywhere, but
+            // under the venv it can borrow certifi (a requests dependency) to verify TLS. macOS
+            // python.org builds ship without a wired-up CA store, so a system interpreter fails the
+            // live token check with CERTIFICATE_VERIFY_FAILED and nothing else can be concluded.
+            // Falls back to a system interpreter when there is no venv yet — which is exactly the
+            // case the doctor has to survive.
+            var python = ExecutableLocator.FindPython(PaytablePaths.VenvExists);
             if (python == null)
             {
                 py.Set(CheckStatus.Blocked, "no Python interpreter found",
@@ -375,9 +379,22 @@ namespace CGS.PaytableLibrary.Tooling
                 case "absent":
                     d.AppendLine("No token file. Nothing can authenticate without it.");
                     break;
+                case "tls_untrusted":
+                    d.AppendLine("Could not verify the token: this Python cannot validate TLS");
+                    d.AppendLine("certificates, so the request never reached Confluence.");
+                    d.AppendLine();
+                    d.AppendLine("Not a network problem and not a token problem. macOS python.org");
+                    d.AppendLine("builds ship without a wired-up CA store; `requests` never trips over");
+                    d.AppendLine("it because it bundles certifi. Build the venv (which installs");
+                    d.AppendLine("requests, and certifi with it) and this resolves itself.");
+                    if (Get("confluence.token_detail").Length > 0)
+                        d.AppendLine().AppendLine("  " + Get("confluence.token_detail"));
+                    break;
                 case "unreachable":
                     d.AppendLine("Could not reach Confluence to verify the token — offline?");
                     d.AppendLine("Offline is not the same as unauthorised, so this is not counted as failure.");
+                    if (Get("confluence.token_detail").Length > 0)
+                        d.AppendLine().AppendLine("  " + Get("confluence.token_detail"));
                     break;
                 default:
                     d.AppendLine("Token: " + tokenState);
@@ -398,6 +415,11 @@ namespace CGS.PaytableLibrary.Tooling
                     c.Set(CheckStatus.Wrong,
                           $"token rejected (HTTP {Get("confluence.token_http")}) — expired or revoked",
                           c.Detail);
+                    break;
+                case "tls_untrusted":
+                    // Blocked, not Wrong: the token may well be fine, we could not ask.
+                    c.Set(CheckStatus.Blocked,
+                          "could not verify — this Python cannot validate TLS certificates", c.Detail);
                     break;
                 case "unreachable":
                     // Blocked, never Ok and never a failure: we simply do not know.
