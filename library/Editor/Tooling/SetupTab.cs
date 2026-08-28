@@ -349,8 +349,12 @@ namespace CGS.PaytableLibrary.Tooling
                 d.AppendLine($"  {parts[0],-12} {name,-28} {parts[2]} host(s)");
             }
             d.AppendLine();
+            d.AppendLine($"config file: {Get("config.file")}" +
+                         (Get("config.exists") == "1" ? "" : "   (not written yet)"));
+            var pinned = Get("confluence.chrome_profile");
+            d.AppendLine($"CHROME_PROFILE: {(pinned.Length > 0 ? pinned + "  [from " + Get("confluence.chrome_profile_source") + "]" : "not pinned — the script picks the first profile with cookies")}");
             d.AppendLine($"PAT file: {(patExists ? "present, mode " + Get("confluence.pat_mode") : "absent")}");
-            d.AppendLine($"CONFLUENCE_EMAIL: {(emailSet ? "set" : "NOT SET")}");
+            d.AppendLine($"CONFLUENCE_EMAIL: {(emailSet ? "set  [from " + Get("confluence.email_source") + "]" : "NOT SET")}");
             if (trap)
             {
                 d.AppendLine();
@@ -366,12 +370,16 @@ namespace CGS.PaytableLibrary.Tooling
             c.FixLabel = null;
             c.Fix = null;
 
+            var pinnedName = Get("confluence.chrome_profile");
             if (trap)
                 c.Set(CheckStatus.Wrong, "PAT present without CONFLUENCE_EMAIL", c.Detail);
             else if (withCookies == 0)
                 c.Set(CheckStatus.Warning, "no Chrome profile holds Confluence cookies", c.Detail);
+            else if (pinnedName.Length == 0)
+                c.Set(CheckStatus.Warning,
+                      $"{withCookies} profile(s) with cookies, none pinned", c.Detail);
             else
-                c.Set(CheckStatus.Ok, $"{withCookies} Chrome profile(s) with Confluence cookies", c.Detail);
+                c.Set(CheckStatus.Ok, $"profile \"{pinnedName}\", cookies present", c.Detail);
         }
 
         void CheckSkills()
@@ -564,11 +572,42 @@ namespace CGS.PaytableLibrary.Tooling
             if (!string.IsNullOrEmpty(_patInput))
             {
                 File.WriteAllText(PaytablePaths.ConfluencePatFile, _patInput.Trim());
-                if (!PaytablePaths.IsWindows)
-                    _w.StartProcess("/bin/chmod", new[] { "600", PaytablePaths.ConfluencePatFile }, null, 20);
+                RestrictPatPermissions();
                 _patInput = "";
             }
             RunEnvDoctor();
+        }
+
+        /// <summary>
+        /// chmod 600 on the token file, run synchronously.
+        ///
+        /// This is the one place that blocks, and deliberately: it finishes in milliseconds, and
+        /// routing it through the shared async probe would occupy the very slot RunEnvDoctor needs
+        /// on the next line — the re-check would be dropped as "already running" and the row would
+        /// sit on a stale result. Windows has no equivalent; the UI says so rather than implying
+        /// the file is protected there.
+        /// </summary>
+        static void RestrictPatPermissions()
+        {
+            if (PaytablePaths.IsWindows) return;
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "/bin/chmod",
+                    Arguments = "600 " + ProcessProbe.Quote(PaytablePaths.ConfluencePatFile),
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                };
+                using (var p = System.Diagnostics.Process.Start(psi))
+                {
+                    if (p != null && !p.WaitForExit(5000)) { try { p.Kill(); } catch { } }
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("[Paytable Tool] could not chmod the token file: " + e.Message);
+            }
         }
 
         static string Esc(string s) =>

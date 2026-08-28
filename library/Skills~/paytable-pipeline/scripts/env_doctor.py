@@ -59,6 +59,48 @@ INTERROGATE = (
 )
 
 
+def _config_path():
+    if os.name == "nt":
+        base = os.environ.get("APPDATA")
+        return os.path.join(base, "paytable-tools", "config.json") if base else None
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(base, "paytable-tools", "config.json")
+
+
+_CONFIG_CACHE = None
+
+
+def _config():
+    global _CONFIG_CACHE
+    if _CONFIG_CACHE is None:
+        _CONFIG_CACHE = {}
+        p = _config_path()
+        if p and os.path.isfile(p):
+            try:
+                with open(p, encoding="utf-8") as f:
+                    _CONFIG_CACHE = json.load(f)
+            except Exception:
+                pass
+    return _CONFIG_CACHE
+
+
+def setting(name, default=""):
+    """Same precedence the scripts use: real environment first, then the config file.
+
+    The doctor MUST read the config file too. Reading only os.environ made it report a correctly
+    configured machine as broken — the settings were saved, the extraction script would have used
+    them, and this said CONFLUENCE_EMAIL was unset. A checker that lies about state is worse than
+    no checker.
+    """
+    v = os.environ.get(name)
+    if v not in (None, ""):
+        return v, "env"
+    v = _config().get(name)
+    if v not in (None, ""):
+        return v, "config"
+    return default, "unset"
+
+
 def _run(argv, timeout=15):
     try:
         p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
@@ -273,9 +315,11 @@ def scan_chrome():
 # ── confluence config ───────────────────────────────────────────────────────
 
 def scan_confluence():
-    pat = os.path.expanduser(os.environ.get("CONFLUENCE_PAT_FILE", "~/.confluence_pat"))
+    pat_setting, _ = setting("CONFLUENCE_PAT_FILE", "~/.confluence_pat")
+    pat = os.path.expanduser(pat_setting)
     exists = os.path.isfile(pat)
-    email = os.environ.get("CONFLUENCE_EMAIL", "")
+    email, email_source = setting("CONFLUENCE_EMAIL")
+    profile, profile_source = setting("CHROME_PROFILE")
     info = {
         "pat_file": pat,
         "pat_file_exists": exists,
@@ -283,6 +327,9 @@ def scan_confluence():
         "pat_file_size": os.path.getsize(pat) if exists else None,
         "email_set": bool(email),
         "email": email or None,
+        "email_source": email_source,
+        "chrome_profile": profile or None,
+        "chrome_profile_source": profile_source,
     }
     # The live 403 trap: with a token and no identity the header becomes base64(":token"), and
     # Confluence answers "Current user not permitted to use Confluence" with no further clue.
@@ -341,7 +388,9 @@ def human(d):
     out.append("")
     out.append(f"confluence: PAT file {'present' if c['pat_file_exists'] else 'absent'}"
                f"{' mode ' + c['pat_file_mode'] if c['pat_file_mode'] else ''}, "
-               f"email {'set' if c['email_set'] else 'NOT SET'}")
+               f"email {'set (' + c['email_source'] + ')' if c['email_set'] else 'NOT SET'}"
+               f", chrome profile "
+               f"{c['chrome_profile'] + ' (' + c['chrome_profile_source'] + ')' if c['chrome_profile'] else 'not pinned'}")
     if c["pat_without_email"]:
         out.append("  WARNING: PAT present with no CONFLUENCE_EMAIL — Basic auth cannot work "
                    "and would 403; the script falls back to cookies.")
@@ -393,6 +442,11 @@ def kv(d):
     out.append(f"confluence.pat_exists={int(c['pat_file_exists'])}")
     out.append(f"confluence.pat_mode={c['pat_file_mode'] or ''}")
     out.append(f"confluence.email_set={int(c['email_set'])}")
+    out.append(f"confluence.email_source={c['email_source']}")
+    out.append(f"confluence.chrome_profile={c['chrome_profile'] or ''}")
+    out.append(f"confluence.chrome_profile_source={c['chrome_profile_source']}")
+    out.append(f"config.file={_config_path() or ''}")
+    out.append(f"config.exists={int(bool(_config()))}")
     out.append(f"confluence.pat_without_email={int(c['pat_without_email'])}")
     out.append(f"python_extra_present={int(d['python_extra_present'])}")
     return "\n".join(out)
