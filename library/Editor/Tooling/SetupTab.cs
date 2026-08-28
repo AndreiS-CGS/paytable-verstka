@@ -602,8 +602,35 @@ namespace CGS.PaytableLibrary.Tooling
             var candidates = All("interp.candidate").Select(l => l.Split('|')).ToList();
             if (candidates.Count == 0)
             {
-                EditorUtility.DisplayDialog("No usable interpreter",
-                    "No Python 3.10+ interpreter was found that can build a venv.", "OK");
+                // Say what was found and why each one lost, then how to get a usable one. The
+                // rejection reasons are already in hand; a bare "none found" makes the user guess
+                // at a question the window has already answered.
+                var msg = new StringBuilder("No interpreter here can build the venv.\n\n");
+                var rejected = All("interp.rejected").Select(l => l.Split('|')).ToList();
+                if (rejected.Count > 0)
+                {
+                    msg.AppendLine("Found, but not usable:");
+                    foreach (var r in rejected)
+                        msg.AppendLine($"  {r[0]}  {r[1]}\n     {(r.Length > 2 ? r[2] : "")}");
+                }
+                else msg.AppendLine("No Python installation was found at all.");
+
+                msg.AppendLine();
+                msg.AppendLine(PaytablePaths.IsWindows
+                    ? "Install Python 3.11-3.13 from python.org, ticking \"Add python.exe to PATH\"."
+                    : "macOS ships only an old Python, which is why this happens on a fresh machine.\n" +
+                      "Install a newer one:\n" +
+                      "    brew install python@3.13\n" +
+                      "or download 3.11-3.13 from python.org.");
+                msg.AppendLine();
+                msg.AppendLine("Then press Re-check all — nothing needs restarting.");
+
+                Debug.LogWarning("[Paytable Tool] " + msg);
+                EditorUtility.DisplayDialog("No usable interpreter", msg.ToString(), "OK");
+
+                var pyCheck = _w.Setup.Get(CheckId.Python);
+                pyCheck.Set(CheckStatus.Missing, "no interpreter that can build a venv",
+                            msg.ToString() + "\n" + (pyCheck.Detail ?? ""));
                 return;
             }
             var basePython = candidates[0][1];

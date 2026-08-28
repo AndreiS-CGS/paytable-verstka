@@ -139,7 +139,9 @@ def _disqualify(info, path):
     if os.name == "nt" and "windowsapps" in path.lower():
         return "Microsoft Store alias stub, not a real interpreter"
     if tuple(info["version_info"]) < (3, 10):
-        return f"Python {info['version']} is too old (numpy>=2 and scipy need 3.10+)"
+        return (f"Python {info['version']} — below the 3.10 floor this tool sets. Not a measured "
+                f"limit of the dependencies; 3.9 is end-of-life and untested here, and on macOS it "
+                f"is the Command Line Tools build, which is a poor base for a venv.")
     if info["is_venv"]:
         return "is itself a venv — never build a venv from a venv"
     if not info["has_venv"] or not info["has_ensurepip"]:
