@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# macOS
+.DS_Store
+
+# Unity (the library folder is a UPM package; these are generated per-machine)
+Library/
+Temp/
+Logs/
+obj/
