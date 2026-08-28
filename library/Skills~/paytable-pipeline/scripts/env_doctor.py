@@ -182,9 +182,10 @@ def scan_interpreters():
 
 DEP_PROBE = (
     "import sys,os,json,importlib\n"
-    # Mirror the real script's own sys.path mutation, or the probe measures a different program
-    # than the one that runs.
-    "sys.path.append(os.path.expanduser('~/.local/lib/python-extra'))\n"
+    # No sys.path mutation here any more: the extraction script used to append
+    # ~/.local/lib/python-extra and the probe mirrored that for fidelity. The script dropped it
+    # along with browser_cookie3, so mirroring it would now measure a different program than the
+    # one that runs — which is the exact failure this comment used to warn about.
     "out={'executable':sys.executable,'prefix':sys.prefix,'base_prefix':sys.base_prefix,'mods':{}}\n"
     "for m in %r:\n"
     "    try:\n"
