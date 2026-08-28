@@ -1,14 +1,26 @@
 # Setup instructions — for an AI agent (Claude Code) to execute
 
+> **Try the window first.** Most of what follows is now automated: add the package to
+> `Packages/manifest.json` (step 4), open **PlayStudios > Slot Tools > Paytable Tool**, and press
+> **Re-check all**. It probes each item, fixes what it safely can, and shows the exact command and
+> output behind every row. Come back here for the steps it cannot do — those are marked **ASK** —
+> or when there is no working Unity project to open a window in.
+
 You (the agent) are setting up the `paytable-verstka` pipeline on a new machine for a colleague.
 This is not documentation to summarize — follow it as an ordered checklist, asking the human only
-what's explicitly marked "ASK". Verify each step actually worked before moving to the next; don't
-assume success from a command's exit code alone where a real check is listed.
+what's explicitly marked "ASK". Verify each step actually worked before moving to the next.
+
+**Never report a step as done on an exit code alone where a real check is listed.** Every stale
+failure this document has caused came from exactly that: pip reporting success while the package
+resolved from somewhere else, a cookie file existing while nobody was logged in, a skill installed
+but silently ignored because its frontmatter was malformed.
 
 ## 0. What you're setting up
-Three Claude Code skills (`paytable-pipeline`, `cgs-atlas-builder`, `paytable-verstka`) plus a Unity
-Package (`com.cgs.paytablelibrary`) that a target Unity project consumes via a git URL in its
-`Packages/manifest.json`. All four live in one repo:
+Three Claude Code skills (`paytable-pipeline`, `cgs-atlas-builder`, `paytable-verstka`) plus the
+Unity Package that carries them (`com.cgs.paytablelibrary`), consumed by the target Unity project
+via a git URL in its `Packages/manifest.json`. The skills live INSIDE the package, under
+`library/Skills~/` — Unity ignores `~`-suffixed folders, so they ship without becoming assets.
+That is why there is no separate clone step for a normal install. Everything is in one repo:
 **https://github.com/AndreiS-CGS/paytable-verstka** (private).
 
 ## 1. GitHub access

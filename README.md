@@ -1,101 +1,118 @@
 # paytable-verstka
 
-Self-contained repo for the CGS/Konami slot-paytable pipeline: three Claude Code skills that
-together take a Confluence GDD link to a finished `PaytableDialog<Game>` Unity prefab, plus the
-reusable Unity block library they assemble it from.
+The CGS/Konami slot-paytable pipeline: three Claude Code skills that take a Confluence GDD link to a
+finished `PaytableDialog<Game>` Unity prefab, the reusable block library they assemble it from, and
+a Unity editor window that sets up the whole thing.
 
-**Setting this up on a new machine?** Point your Claude Code agent at **[SETUP.md](SETUP.md)** and
-have it work through that checklist — it's written as instructions for an agent to execute, not a
-human to read and translate into commands.
+All of it ships as one Unity package. Pull the package, open the window, work through what it
+flags.
+
+## Getting set up
+
+1. Add the package to your Unity project's `Packages/manifest.json`:
+   ```json
+   "com.cgs.paytablelibrary": "https://github.com/AndreiS-CGS/paytable-verstka.git?path=library#main"
+   ```
+   The repo is private, so your machine's git credentials need read access to it. Ask for a
+   collaborator invite if `git ls-remote https://github.com/AndreiS-CGS/paytable-verstka.git`
+   does not list refs.
+
+2. Open **PlayStudios > Slot Tools > Paytable Tool** and press **Re-check all**.
+
+The Setup tab checks the package, the Python environment, the skills, Confluence access and
+unityMCP, and fixes what can be fixed from a button. What it cannot do — logging Chrome into
+Confluence, `gh auth login`, granting repo access, the macOS Keychain prompt — it lists separately
+so a permanently amber row does not read as a bug.
+
+Every row shows the exact command it ran and the full output. Statuses are four-valued rather than
+pass/fail: a probe that timed out or could not find its tool reports **Blocked**, never Ok. That
+distinction is the point of the tool — the procedure it replaced kept reporting success nobody had
+verified.
+
+[SETUP.md](SETUP.md) covers the same ground for an agent doing it without the window, and documents
+the steps that stay manual.
+
+## Using it
+
+The **Run** tab takes the game name, slot id, GDD URL and sprite prefix, derives the bundle path,
+validates everything, and composes a prompt to paste into Claude Code. It does not launch the run:
+the skill has deliberate human checkpoints — the art gate, the review steps — that a headless run
+would stall on.
+
+You can also just talk to the skills directly. Each is independently invocable: asking to pull a
+paytable from Confluence runs only `paytable-pipeline`, asking to pack an atlas runs only
+`cgs-atlas-builder`, and `paytable-verstka` orchestrates both plus the assembly.
 
 ## Contents
-```
-library/                  — the UPM package `com.cgs.paytablelibrary`
-└── Skills~/              — the three skills; Unity ignores `~` folders, UPM still ships them
-├── paytable-pipeline/    — extracts Pay Table text/images/symbols from a Confluence GDD
-│   └── scripts/paytable_from_confluence.py
-├── cgs-atlas-builder/    — packs symbol PNGs into a TMP Sprite Asset + atlas texture
-│   └── scripts/{process_pngs,pack_atlas}.py
-└── paytable-verstka/     — orchestrates both of the above, then assembles the prefab
-    └── reference/        (historical background docs)
 
-library/                  — the reusable Unity Package the assembly step clones/instantiates from
-├── package.json          (com.cgs.paytablelibrary)
-├── BLOCKS.md              — per-block content-slot manifest
-├── Shells/                — empty dialog shells (GEL + MCF)
-├── Blocks/                — atomic content block prefabs (Page_1, Text, ImageContainer, GoldBox,
-│                            GoldBoxRow, PayBlock)
-└── Editor/                — real C# utilities the skills call (grid math, PayBlock text
-                             formatting, atlas-builder Unity-side steps) — not prose to
-                             re-implement each run.
+```
+library/                      the UPM package, com.cgs.paytablelibrary
+├── package.json
+├── BLOCKS.md                 per-block content-slot manifest — the authority on sizes and layout
+├── Shells/                   empty dialog shells (GEL + MCF)
+├── Blocks/                   Page_1, GridPage, StackPage, GridCell, SpecialPanel, PanelRow,
+│                             PayRows, IconSlot, ManualSlot, TextBlock
+├── Editor/                   C# the skills call rather than re-implement each run:
+│   │                         grid math, PayRows text formatting, the atlas builder's Unity steps
+│   └── Tooling/              the Paytable Tool window
+└── Skills~/                  the three skills
+    ├── paytable-pipeline/    extracts text, images and symbols from a Confluence GDD
+    ├── cgs-atlas-builder/    packs symbol PNGs into an atlas + TMP Sprite Asset
+    └── paytable-verstka/     orchestrates both, then assembles the prefab
+
+requirements.txt              the five Python packages, installed into ~/.venvs/paytable-tools
 ```
 
-Each skill is independently invocable — asking to just pull a paytable from Confluence only runs
-`paytable-pipeline`; asking to just pack an atlas only runs `cgs-atlas-builder`. `paytable-verstka`
-orchestrates both plus the assembly logic itself. All three share this one repo and one library so
-nothing drifts out of sync between them.
+`Skills~` is named for the tilde: Unity ignores any folder ending in `~`, so the skills ship with
+the package without becoming Unity assets and without needing `.meta` files. Before they lived here
+the package only carried `library/`, which is why setup used to require a separate clone and
+`gh auth login`.
 
-## Installing the skills (Claude Code)
-The skills ship inside the package at `library/Skills~/`, so pulling the package delivers them.
-Install them with the Unity window (`PlayStudios/Slot Tools/Paytable Tool` → Setup), which copies
-each one into `<git repo root>/.claude/skills/<name>`.
+The skills find their own Python. Each script re-execs itself into `~/.venvs/paytable-tools` before
+its first third-party import, so it does not matter which `python3` invokes them — and if nothing
+resolves they fail loudly instead of running on a half-built environment.
 
-To do it by hand, copy the three folders from `library/Skills~/` to that directory — or, when
-working on the skills themselves, symlink them from a local clone so edits are live:
+## Working on the tooling itself
+
+Clone the repo and point the project at your clone instead of the git URL:
+
+```json
+"com.cgs.paytablelibrary": "file:/absolute/path/to/paytable-verstka/library"
+```
+
+Edits are then live. For the skills, uncheck the window's install option and symlink them from the
+clone:
+
 ```bash
 ln -s "/path/to/paytable-verstka/library/Skills~/paytable-pipeline" ~/.claude/skills/paytable-pipeline
 ln -s "/path/to/paytable-verstka/library/Skills~/cgs-atlas-builder"  ~/.claude/skills/cgs-atlas-builder
 ln -s "/path/to/paytable-verstka/library/Skills~/paytable-verstka"   ~/.claude/skills/paytable-verstka
 ```
-Copy — never symlink — when the package came from a git URL: it resolves read-only under
-`Library/PackageCache/` and is wiped on every re-resolve, so a symlink into it dangles silently.
 
-## Installing `library/` into a Unity project
+The window will not silently replace a symlink with a copy — it names the link target and asks.
 
-**A — git package (current setup, used by Konami-Slots today):**
-Add to that project's `Packages/manifest.json`:
-```json
-"com.cgs.paytablelibrary": "https://github.com/AndreiS-CGS/paytable-verstka.git?path=library#main"
-```
-Unity clones the repo (private — the machine's `git`/`gh` credentials need read access) and resolves
-the package from its own cache. This is a `#main` reference, so Unity pins to whatever commit was
-current at first resolve — after pushing new commits to `library/`, force a re-pull with:
-```csharp
-// remove the stale entry from Packages/packages-lock.json and the matching folder under
-// Library/PackageCache/, then:
-UnityEditor.PackageManager.Client.Resolve();
-```
-(`Resolve()` alone is not enough if the package was already resolved once — it only re-reads the
-existing lock, it doesn't check `main` for new commits on its own.)
+**Copy, never symlink, from a git-resolved package.** It lives read-only under
+`Library/PackageCache/` and is wiped on every re-resolve, so a link into it dangles and the skill
+disappears mid-project.
 
-**B — local package via `file:` reference (for iterating without pushing every change):**
-```json
-"com.cgs.paytablelibrary": "file:/absolute/path/to/paytable-verstka/library"
-```
-Unity resolves it directly from your local clone — edits are picked up without a copy or a push.
-Good for active development on the library; switch back to option A once changes are pushed, so the
-whole team stays on the same source.
+**A `#main` git reference pins the first commit it resolved.** To pick up new commits, remove the
+entry from `Packages/packages-lock.json` *and* the matching folder under `Library/PackageCache/`,
+then call `UnityEditor.PackageManager.Client.Resolve()`. `Resolve()` alone only re-reads the
+existing lock.
 
-**C — embedded package (copy, no shared source of truth):**
-Copy `library/` into that project's `Packages/com.cgs.paytablelibrary/` folder. Unity auto-discovers
-it (any folder under `Packages/` with a `package.json`, no `manifest.json` entry needed). Only do
-this if you specifically want an independent, disconnected copy — it will drift from this repo.
+**New files under `library/` need a `.meta`.** A file that never passed through a writable Unity
+`Assets/` folder has none, and Unity silently ignores un-metaed assets inside a git-resolved
+package — no error, the file simply does not exist as far as Unity is concerned. The easy way is to
+create it through a `file:`/embedded install, where the package path is writable and Unity writes
+the `.meta` straight into the repo.
 
-**Gotcha when adding new files under `library/`:** files that only ever existed inside this git
-repo (never imported into a real, writable Unity `Assets/` folder first) have no `.meta` file, and
-Unity silently ignores un-metaed assets inside a git-resolved (read-only) package — no error, the
-file just doesn't exist as far as Unity's concerned. Before committing a new file there: copy it
-into any ordinary `Assets/` folder in a local Unity project, let Unity generate the `.meta` on
-import/refresh, then copy the `.meta` back next to the file in this repo (and delete the temporary
-copy from `Assets/`). This bit us once already with `library/Editor/*.cs` — see git history.
-
-
+**Do not add `Library/` to `.gitignore`.** macOS git runs with `core.ignorecase=true`, so that rule
+matches `library/` — the package itself. Already-tracked files keep working while every new file
+silently stops being tracked, and `git commit` reports a clean tree.
 
 ## Status
-Live at **https://github.com/AndreiS-CGS/paytable-verstka** (private repo, under the CGS work
-account). Konami-Slots' `Packages/manifest.json` currently uses option A above, pointed at this
-exact URL — confirmed resolving (`source=Git`) and the `library/Editor/` C# utilities load and run.
-To give a colleague access: they need read access to this private repo (add them as a collaborator,
-or move it under the `myKonami` org once its GitHub SSO/SAML step is sorted out), then they set up
-their own machine's skill symlinks per above — the `manifest.json` git URL itself needs no
-per-machine change.
+
+Live at **https://github.com/AndreiS-CGS/paytable-verstka** (private, under the CGS work account).
+Konami-Slots resolves the package and the `library/Editor/` C# loads and runs. Giving a colleague
+access is one collaborator invite — the `manifest.json` entry needs no per-machine change, and the
+window handles the rest of their setup.
