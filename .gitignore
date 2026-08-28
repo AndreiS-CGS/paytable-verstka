@@ -1,13 +1,22 @@
-# Python
+# ── Un-ignore rules first: in gitignore the LAST matching rule wins, so anything below
+#    this block can still re-exclude what it needs to.
+
+# The global gitignore excludes `*~` (editor backup files). `Skills~` is a real directory that
+# must ship: Unity ignores `~`-suffixed folders, which is exactly why the skills live there.
+!Skills~/
+!library/Skills~/
+!library/Skills~/**
+
+# NOTE: there are deliberately no Unity `Library/` `Temp/` `Logs/` rules in this file.
+# This repo is not a Unity project — `library/` IS the shipped package. macOS git runs with
+# core.ignorecase=true, so a `Library/` rule silently matches `library/`: already-tracked files
+# keep working while every NEW file added to the package stops being tracked. Nothing looks wrong
+# until someone clones and half the package is missing.
+
+# ── Python
 __pycache__/
 *.py[cod]
 .venv/
 
-# macOS
+# ── macOS
 .DS_Store
-
-# Unity (the library folder is a UPM package; these are generated per-machine)
-Library/
-Temp/
-Logs/
-obj/
