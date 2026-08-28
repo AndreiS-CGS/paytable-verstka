@@ -24,25 +24,37 @@ Package (`com.cgs.paytablelibrary`) that a target Unity project consumes via a g
   should list refs, not error. If it 403s/404s, access isn't granted yet — stop and say so plainly,
   don't guess around it.
 
-## 2. Clone the repo locally
-Skills need an actual local clone (symlinks can't point at GitHub directly). Pick a sensible path —
-**ASK** where, or default to `~/Documents/Unity/paytable-verstka` if they have no preference:
+## 2. Clone the repo locally — only if you are working ON the tooling
+**Most people can skip this.** The skills ship inside the Unity package at `library/Skills~/`, so
+step 4 delivers them along with the block library; there is nothing to clone separately.
+
+Clone only to edit the skills or the library themselves:
 ```bash
 git clone https://github.com/AndreiS-CGS/paytable-verstka.git <chosen-path>
 ```
-Verify: `ls <chosen-path>/skills` shows all three skill folders.
+Verify: `ls "<chosen-path>/library/Skills~"` shows all three skill folders.
 
-## 3. Symlink the three skills into Claude Code
-Find where THIS machine's Claude Code actually loads skills from — don't assume `~/.claude/skills`
-is the only place; check for a plugin-managed skills directory too (look at how any already-working
-skill on this machine is set up, or check config). Then, for each of `paytable-pipeline`,
-`cgs-atlas-builder`, `paytable-verstka`:
+## 3. Install the three skills into Claude Code
+Do this with the Unity window — **PlayStudios > Slot Tools > Paytable Tool > Setup** — which copies
+each skill out of the resolved package into `<git repo root>/.claude/skills/<name>` and stamps it
+so it can tell you later whether it has drifted.
+
+By hand, for each of `paytable-pipeline`, `cgs-atlas-builder`, `paytable-verstka`:
 ```bash
-cp -R "<chosen-path>/library/Skills~/<name>" "<wherever-skills-load-from>/<name>"
+cp -R "<package>/Skills~/<name>" "<wherever-skills-load-from>/<name>"
 ```
-Verify: after creating them, confirm the skill list picks up all three (a fresh skill listing should
-show them, and compare file contents against `<chosen-path>/library/Skills~/<name>` — resolving
-one symlink level is not proof).
+Where `<wherever-skills-load-from>` is `~/.claude/skills` or a project-level `.claude/skills`
+directory. Check for a plugin-managed skills directory too, and for the same skill installed in two
+places — that is a silent version-skew source.
+
+**Copy, do not symlink, when the package came from the git URL.** It resolves read-only under
+`Library/PackageCache/` and is wiped on every re-resolve, so a symlink into it dangles silently and
+the skill simply disappears mid-project. Symlink only from a local clone, when you are editing the
+skills and want the edits live.
+
+Verify by comparing file contents, not by resolving one symlink level, and confirm each installed
+`SKILL.md` still has a valid YAML frontmatter block with `name` and `description` — a skill whose
+frontmatter is malformed is silently ignored while looking perfectly installed.
 
 ## 4. Point the target Unity project at the library
 - **ASK** which Unity project (path) this is for, if not already obvious from context.
@@ -72,37 +84,53 @@ Code needs) — outside this repo's scope. Check whether unityMCP tools are alre
 this machine before assuming you need to set that up too.
 
 ## 6. Python environment (needed by paytable-pipeline and cgs-atlas-builder)
-Both need real Python packages that aren't vendored in this repo. Use a venv (portable, no
-system-Python pollution) unless the human has their own preferred way:
+One venv at a fixed location. The scripts find it themselves — each one re-execs into it on
+startup — so nothing needs activating and it does not matter which `python3` invokes them.
+
 ```bash
 python3 -m venv ~/.venvs/paytable-tools
-source ~/.venvs/paytable-tools/bin/activate
-pip install browser-cookie3 pillow
+~/.venvs/paytable-tools/bin/python -m pip install --only-binary=:all: -r requirements.txt
 ```
-`paytable-pipeline`'s script auto-adds `~/.local/lib/python-extra` to its path as a fallback lookup
-location — if the human prefers that over a venv, `pip install browser-cookie3 --target ~/.local/lib/python-extra`
-works too. Either is fine; just make sure whichever Python actually runs the script can `import
-browser_cookie3` and `import PIL`.
+
+All five packages are required: `requests`, `browser-cookie3`, `pillow`, `numpy`, `scipy`. An
+earlier version of this document listed only two of them, which is why installs kept ending up
+half-working.
+
+`--only-binary=:all:` matters: without a wheel, pip attempts a source build that runs for minutes
+and fails with a wall of compiler output. With it you get an immediate, readable "no matching
+distribution", and the fix is to build the venv from a different base interpreter. Prefer a
+python.org or pyenv 3.11-3.13 base over the newest minor release — wheels for `scipy` and `pillow`
+lag a new Python by weeks.
+
+**Do not use `pip install --target ~/.local/lib/python-extra`.** Earlier instructions recommended
+it; the script used to put that directory *ahead* of the venv on `sys.path`, so packages installed
+there silently shadowed the venv's. It now comes after the venv, but the directory remains an
+unversioned trap — remove it if it exists.
+
+Verify by importing, not by trusting pip's exit code:
+```bash
+~/.venvs/paytable-tools/bin/python -c "import requests, browser_cookie3, PIL, numpy, scipy; print('ok')"
+```
 
 ## 7. Confluence access (for paytable-pipeline)
 - **ASK** which Chrome profile on this machine is logged into `playstudios.atlassian.net` (their own
   CGS Confluence account — not yours, not a shared one).
-- Set that as an env var the script will read — `CHROME_PROFILE="Profile N"` (matching Chrome's own
-  profile directory name) or `CHROME_COOKIE_FILE=/full/path/to/that/profile/Cookies`. Persist it in
-  their shell profile (`~/.zshrc` etc.) if they'll use this regularly, not just export it for one
-  session.
+- Set that as `CHROME_PROFILE="Profile N"` (matching Chrome's own profile directory name) or
+  `CHROME_COOKIE_FILE=/full/path/to/that/profile/Cookies`. Persist it in
+  `~/.config/paytable-tools/config.json` (`%APPDATA%\paytable-tools\config.json` on Windows),
+  which the scripts read directly — not in `~/.zshrc`, which is shell-specific, does nothing on
+  Windows, and is invisible to a GUI-launched Unity.
+- **If `~/.confluence_pat` exists, `CONFLUENCE_EMAIL` must be set too.** Basic auth needs both. With
+  the token present and the email missing the script now warns and falls back to cookies; it used
+  to send the header anyway and get `403 Current user not permitted to use Confluence`, which looks
+  like a permissions problem and is not.
 - Verify by actually running an extraction against a real GDD URL once everything else is set up —
-  don't declare this step done on config alone.
+  don't declare this step done on config alone. On macOS the first cookie read triggers a Keychain
+  prompt; tell the human it is coming and that they should choose Always Allow, because a denied
+  prompt surfaces later only as an exception class name with no message.
 
-## 8. OPENROUTER_API_KEY — not needed, skip this entirely
-`paytable-pipeline`'s script has an LLM-cleaning step that calls OpenRouter if this key is set,
-otherwise it falls back to a cruder regex clean. But since YOU (the agent running the skill) are
-already an LLM in the loop, just do that cleaning pass yourself when the skill calls for it — see
-`skills/paytable-pipeline/SKILL.md` Step 2. Don't ask the human for this key; there's no reason to
-pay for a second LLM call for something you can already do inline.
-
-## 9. Final smoke test
-Once steps 1-6 are done, confirm the whole chain works end to end:
+## 8. Final smoke test
+Once steps 1-7 are done, confirm the whole chain works end to end:
 1. A skill listing shows all three skills.
 2. `git ls-remote` on the repo succeeds (access is real, not just locally cached).
 3. Unity resolves `com.cgs.paytablelibrary` with `source=Git` (step 4's check).

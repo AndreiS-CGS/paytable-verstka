@@ -3,8 +3,8 @@
 Paytable Create Pipeline — Confluence API version
 No browser, no SingleFile. Works directly via Atlassian REST API.
 
-Auth: Chrome cookie session (primary). Optional PAT at ~/.confluence_pat with
-      CONFLUENCE_EMAIL — see the skill's Prerequisites section.
+Auth: Chrome cookie session (primary). Optional PAT at ~/.confluence_pat, which requires
+      CONFLUENCE_EMAIL to be set alongside it — see the skill's Prerequisites section.
 
 Usage:
   python3 paytable_from_confluence.py <confluence_url> <GameName> <output_dir>
@@ -19,21 +19,36 @@ Example:
 import re
 import sys
 import os
+
+import _bootstrap                       # MUST precede every third-party import
+_bootstrap.require('requests')
+
 import requests
 from base64 import b64encode
 
-# browser_cookie3 may be vendored under ~/.local/lib/python-extra (optional)
-sys.path.insert(0, os.path.expanduser('~/.local/lib/python-extra'))
+# A vendored copy may exist under ~/.local/lib/python-extra. APPENDED, never inserted at 0:
+# ahead of the venv it shadows the properly installed package, so an import check passes while
+# the script actually loads a different, unversioned copy.
+sys.path.append(os.path.expanduser('~/.local/lib/python-extra'))
 try:
     import browser_cookie3
     COOKIES_AVAILABLE = True
 except ImportError:
     COOKIES_AVAILABLE = False
+    print(f"  Warning: browser_cookie3 is not importable under {sys.executable} — "
+          f"cookie auth is DISABLED and only a PAT can work.", file=sys.stderr)
 
-# ── Config — all env-overridable so the skill is shareable across machines ──
-# Confluence identity (only needed for PAT/Basic auth; cookie auth needs neither).
-EMAIL      = os.environ.get('CONFLUENCE_EMAIL', '')
-TOKEN_FILE = os.path.expanduser(os.environ.get('CONFLUENCE_PAT_FILE', '~/.confluence_pat'))
+
+# ── Config ──────────────────────────────────────────────────────────────────
+# Read through _bootstrap.config (real env first, then the config file the Unity Setup tab
+# writes), and read it INSIDE the functions that use it: at module scope these froze before
+# main() ran, so a config file could never affect them.
+def _email():
+    return _bootstrap.config('CONFLUENCE_EMAIL', '') or ''
+
+
+def _token_file():
+    return os.path.expanduser(_bootstrap.config('CONFLUENCE_PAT_FILE', '~/.confluence_pat'))
 
 
 def _chrome_base_dirs():
@@ -50,6 +65,11 @@ def _chrome_base_dirs():
     ]
 
 
+def _natural_key(name):
+    """Sort 'Profile 3' before 'Profile 10'."""
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', name)]
+
+
 def _candidate_cookie_files():
     """Every Chrome Cookies DB on this machine, honouring explicit env overrides.
 
@@ -58,17 +78,19 @@ def _candidate_cookie_files():
     testing for real cookies on the target domain instead of hardcoding a
     profile name (that made the tool machine-specific).
     """
-    explicit = os.environ.get('CHROME_COOKIE_FILE')
+    explicit = _bootstrap.config('CHROME_COOKIE_FILE')
     if explicit:
         return [os.path.expanduser(explicit)]
 
-    wanted = os.environ.get('CHROME_PROFILE')
+    wanted = _bootstrap.config('CHROME_PROFILE')
     found = []
     for base in _chrome_base_dirs():
         if not os.path.isdir(base):
             continue
         try:
-            dirs = sorted(os.listdir(base))
+            # Natural sort: plain sorted() puts 'Profile 10' before 'Profile 3', so the first
+            # profile tried is not the one a human would expect.
+            dirs = sorted(os.listdir(base), key=_natural_key)
         except OSError:
             continue
         profiles = [wanted] if wanted else \
@@ -80,9 +102,6 @@ def _candidate_cookie_files():
                 if os.path.exists(cand) and cand not in found:
                     found.append(cand)
     return found
-
-OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
-CLEAN_MODEL        = os.environ.get('OPENROUTER_CLEAN_MODEL', 'google/gemini-2.0-flash-lite')
 
 SECTION_END_MARKER = 'Task types for Live Ops'
 
@@ -115,26 +134,33 @@ EDITORIAL_PATTERNS = [
 # ── Auth ────────────────────────────────────────────────────────────────────
 
 def get_headers():
-    """Basic-auth headers when a PAT is configured; cookie-only auth otherwise.
+    """Basic-auth headers when a PAT *and* an identity are configured; cookie-only otherwise.
 
-    Cookie auth is the primary path, so a missing PAT file must not be fatal —
-    anyone who only logs into Confluence in Chrome should still work.
+    Cookie auth is the primary path, so a missing PAT file must not be fatal — anyone who only
+    logs into Confluence in Chrome should still work.
+
+    The email check is not a nicety. Building the header without it yields
+    `Basic base64(":<token>")`, which Confluence rejects with
+    `403 Current user not permitted to use Confluence` and no indication of why — a PAT file
+    with no CONFLUENCE_EMAIL beside it used to look exactly like a permissions problem.
     """
     headers = {'Accept': 'application/json'}
     try:
-        with open(TOKEN_FILE) as f:
+        with open(_token_file()) as f:
             token = f.read().strip()
     except OSError:
         return headers
-    creds = b64encode(f'{EMAIL}:{token}'.encode()).decode()
+    if not token:
+        return headers
+    email = _email()
+    if not email:
+        print(f"  Warning: {_token_file()} exists but CONFLUENCE_EMAIL is not set. Basic auth "
+              f"needs both, so it is being skipped entirely — falling back to cookies.",
+              file=sys.stderr)
+        return headers
+    creds = b64encode(f'{email}:{token}'.encode()).decode()
     headers['Authorization'] = f'Basic {creds}'
-    headers['_token'] = token          # kept for download calls that need Bearer
     return headers
-
-
-def get_download_headers(headers):
-    """Attachment downloads require Bearer token, not Basic auth."""
-    return {'Authorization': f'Bearer {headers["_token"]}'}
 
 # ── URL parsing ─────────────────────────────────────────────────────────────
 
@@ -542,43 +568,6 @@ def make_clean(text):
     return re.sub(r'\n{3,}', '\n\n', text).strip()
 
 
-def make_clean_llm(text: str) -> str:
-    """LLM-based clean via OpenRouter — smarter than regex."""
-    import json
-
-    system = (
-        "You are cleaning a slot machine paytable document extracted from Confluence. "
-        "Remove ALL editorial noise while preserving ALL game content exactly as-is.\n\n"
-        "REMOVE:\n"
-        "- Lines with editorial instructions: 'Note:', 'Please add this text:', 'Comment:', 'Please,' etc.\n"
-        "- All strikethrough text wrapped in <del>...</del> tags (both inline and whole-line)\n"
-        "- Any designer/writer comments or internal notes\n"
-        "- Blank lines left by removed content (collapse to single blank line)\n\n"
-        "PRESERVE exactly:\n"
-        "- All payout values, multipliers, and symbol names\n"
-        "- All markdown tables (keep table structure intact)\n"
-        "- All headings (## Page N, etc.)\n"
-        "- All game feature descriptions and rules\n"
-        "- Symbol tokens like [WILD], [SCATTER], [MARK], [5X], etc.\n\n"
-        "Return only the cleaned markdown. No explanation, no preamble."
-    )
-
-    resp = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={"model": CLEAN_MODEL, "messages": [
-            {"role": "system", "content": system},
-            {"role": "user",   "content": text},
-        ]},
-        timeout=120,
-    )
-    resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"]
-
-
 def sprite_name(token):
     """GDD token -> TMP sprite name.
 
@@ -663,16 +652,9 @@ def main():
 
     md_full = f"# {game_name} — Pay Table Pages\n\n" + html_to_markdown(section)
 
-    if OPENROUTER_API_KEY:
-        print(f"Cleaning with LLM ({CLEAN_MODEL})...")
-        try:
-            md_clean = make_clean_llm(md_full)
-        except Exception as e:
-            print(f"  LLM clean failed ({e}), falling back to regex")
-            md_clean = make_clean(md_full)
-    else:
-        print("  OPENROUTER_API_KEY not set — using regex clean")
-        md_clean = make_clean(md_full)
+    # Regex clean only. The agent running this skill does the real cleaning pass itself on top
+    # of this output — nothing is sent to any third-party service.
+    md_clean = make_clean(md_full)
 
     symbols = extract_symbols(md_full)
 

@@ -53,13 +53,15 @@ Where `<skill_dir>` is the directory containing this SKILL.md file.
 
 Output directory should be expanded (`~` → full path). Use `os.path.expanduser` or pass the full path.
 
-**No `OPENROUTER_API_KEY`? Do the cleaning pass yourself instead of settling for the regex fallback.**
-The script's LLM-clean step is just: strip `<del>...</del>` (struck-out) text and editorial notes
-("Note:", "Please add this text:", etc.) out of the full `Paytable.md`, collapsing leftover blank
-lines, while preserving every payout value/symbol/heading/table exactly. You (the agent running this
-skill) can do that same pass directly — read `<GameName> Paytable.md`, produce
-`<GameName> Paytable Clean.md` with those rules applied, and skip calling out to OpenRouter entirely.
-There's no reason to pay for a second LLM call for a job you can already do inline; only fall back to
+**You do the cleaning pass yourself. Always — the script only does a regex first pass.**
+Strip `<del>...</del>` (struck-out) text and editorial notes ("Note:", "Please add this text:",
+etc.) out of the full `Paytable.md`, collapsing leftover blank lines, while preserving every payout
+value/symbol/heading/table exactly. Read `<GameName> Paytable.md`, apply those rules, and write
+`<GameName> Paytable Clean.md`.
+
+The script used to be able to call a remote LLM for this. That path is gone: it sent the entire
+paytable body to a third-party endpoint, which is not something a GDD should do quietly, and this
+skill only ever runs inside an agent loop that can do the job itself. Only fall back to
 the script's regex clean if you're running this step in a context where you can't read/write the
 files yourself (e.g. a detached background script with no agent loop attached).
 
@@ -82,15 +84,22 @@ for both page HTML and attachment downloads. Key requirement: **be logged into t
 Chrome profile.**
 
 One-time setup per machine (no code edits — everything is env-overridable):
-1. Install `browser_cookie3` (a venv, or `pip install browser-cookie3 --target ~/.local/lib/python-extra`).
+1. Install the Python dependencies into the shared venv — `requests`, `browser-cookie3`,
+   `pillow`, `numpy`, `scipy` (see `requirements.txt` at the repo root). The Unity window does
+   this: **PlayStudios > Slot Tools > Paytable Tool > Setup**.
+   Do NOT use `pip install --target ~/.local/lib/python-extra`: that directory is not versioned
+   and used to be placed ahead of the venv on `sys.path`, so it shadowed the properly installed
+   packages while every check still reported success.
 2. Be logged into `playstudios.atlassian.net` in some Chrome profile.
 3. Optionally pin a profile via env — normally not needed:
    - `CHROME_PROFILE="<profile name>"`, OR `CHROME_COOKIE_FILE=/full/path/to/Cookies`.
      With neither set, the script finds the right profile by itself (see below).
    - Optional PAT auth: `CONFLUENCE_EMAIL=you@…` + token at `~/.confluence_pat` (or `CONFLUENCE_PAT_FILE`).
-   - Optional `OPENROUTER_API_KEY` for the script's own LLM cleaning; otherwise it falls back to
-     regex. Since this skill runs inside an agent loop anyway, prefer having the agent do the
-     cleaning pass itself instead (see Step 2) — no key needed for that.
+   - `CONFLUENCE_EMAIL` is **required whenever `~/.confluence_pat` exists.** With the token
+     file present and the email missing, Basic auth is skipped and only cookies are used; the
+     script says so on stderr. (It used to build the header anyway and get back
+     `403 Current user not permitted to use Confluence`, which reads like a permissions problem
+     and is not.)
 
 Chrome user-data locations are resolved per platform (macOS / Windows `%LOCALAPPDATA%` / Linux
 `~/.config`), including the newer `Network/Cookies` sub-path. No profile name or personal path is
@@ -188,3 +197,16 @@ diagram annotation labels (neither a title nor a token, ignore).
 
 Any colour-sampling pass must also **skip placeholder rects** — an unfilled slot is a large solid
 magenta fill, and counting it as content dominates the statistics.
+
+## Интерпретатор Python
+
+Запускай скрипты как `python3 "<skill_dir>/scripts/<name>.py"` и не подбирай интерпретатор вручную.
+Каждый скрипт сам перепрыгивает на нужный: первой строкой он импортирует `_bootstrap`, который
+находит правильный интерпретатор (`PAYTABLE_PYTHON` → `~/.venvs/paytable-tools` → конфиг) и
+пере-запускает себя под ним через `os.execv`. Вывод и код возврата проходят насквозь, разницы не
+видно.
+
+Если ни один не найден и зависимостей нет, скрипт **падает с внятным сообщением**, называя
+интерпретатор и чего в нём не хватает. Он никогда не продолжает работу молча на неполном окружении —
+раньше именно так и было: `browser_cookie3` не импортировался, cookie-авторизация тихо отключалась,
+и всё уезжало на PAT.

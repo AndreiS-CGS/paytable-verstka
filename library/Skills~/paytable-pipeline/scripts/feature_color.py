@@ -22,6 +22,9 @@ import argparse
 import json
 import os
 
+import _bootstrap                       # MUST precede every third-party import
+_bootstrap.require('numpy', 'PIL', 'scipy')
+
 import numpy as np
 from PIL import Image
 from scipy import ndimage

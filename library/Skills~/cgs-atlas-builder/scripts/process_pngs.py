@@ -16,6 +16,9 @@ only to reproduce an older two-tier atlas and default to OFF.
 """
 import argparse
 import os
+import _bootstrap                       # MUST precede every third-party import
+_bootstrap.require('PIL')
+
 from PIL import Image
 
 

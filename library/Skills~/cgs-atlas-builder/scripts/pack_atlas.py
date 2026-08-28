@@ -20,6 +20,9 @@ you can pass a generous `--atlas-size` as a ceiling instead of guessing the righ
 import argparse
 import json
 import os
+import _bootstrap                       # MUST precede every third-party import
+_bootstrap.require('PIL')
+
 from PIL import Image
 
 

@@ -1,0 +1,25 @@
+# Python dependencies for the three paytable skills.
+#
+# Install into the dedicated venv, never into a system interpreter:
+#   python3 -m venv ~/.venvs/paytable-tools
+#   ~/.venvs/paytable-tools/bin/python -m pip install --only-binary=:all: -r requirements.txt
+#
+# Or let the Unity window do it: PlayStudios > Slot Tools > Paytable Tool > Setup.
+#
+# Floors, not == pins. A pinned version across Python 3.10-3.14 guarantees "no wheel available"
+# for somebody on the team, and no wheel means a source build that fails after several minutes
+# with a wall of compiler output. Install with --only-binary=:all: so that turns into an instant,
+# legible error instead.
+#
+# Who needs what:
+#   requests         paytable_from_confluence.py   (hard - the script cannot start without it)
+#   browser-cookie3  paytable_from_confluence.py   (cookie auth, the primary auth path)
+#   pillow           process_pngs.py, pack_atlas.py, title_color.py, feature_color.py
+#   numpy            title_color.py, feature_color.py
+#   scipy            feature_color.py only (scipy.ndimage)
+
+requests>=2.31
+browser-cookie3>=0.19
+pillow>=10.0
+numpy>=1.26
+scipy>=1.11

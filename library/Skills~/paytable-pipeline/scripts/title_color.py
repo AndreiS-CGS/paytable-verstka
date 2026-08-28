@@ -14,6 +14,9 @@ import json
 import os
 import sys
 
+import _bootstrap                       # MUST precede every third-party import
+_bootstrap.require('numpy', 'PIL')
+
 import numpy as np
 from PIL import Image
 
