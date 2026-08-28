@@ -20,7 +20,8 @@ flags.
 2. Open **PlayStudios > Slot Tools > Paytable Tool** and press **Re-check all**.
 
 The Setup tab checks the package, the Python environment, the skills, Confluence access and
-unityMCP, and fixes what can be fixed from a button. What it cannot do — creating your Atlassian
+unityMCP, and fixes what can be fixed from a button — including **Check for updates**, which
+compares your resolved commit against the remote and offers to pull a newer one. What it cannot do — creating your Atlassian
 API token, `gh auth login`, granting repo access — it lists separately so a permanently amber row
 does not read as a bug.
 
@@ -97,7 +98,14 @@ disappears mid-project.
 
 **A git reference pins the commit it first resolved,** so pushing changes nothing for Unity until
 the pin and the cached copy are both removed. `Client.Resolve()` alone only re-reads the lock.
-`tools/package.sh` does the whole dance:
+
+For anyone consuming the package, the **Check for updates / Update** button in the Setup tab is the
+way to do this — it shows which commit you are on, compares it against the remote, and pulls a newer
+one. The Package row also prints the commit beside the version, because the version string does not
+change per commit: two people on very different code both read `0.2.0`.
+
+For working *on* the package, `tools/package.sh` covers the same ground from a shell, plus the
+symlink mode that makes the whole question go away:
 
 ```bash
 ./tools/package.sh link    <unity-project>   # dev: symlink to this clone, edits are live
