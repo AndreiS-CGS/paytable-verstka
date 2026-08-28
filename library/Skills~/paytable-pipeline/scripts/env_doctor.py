@@ -351,12 +351,65 @@ def human(d):
     return "\n".join(out)
 
 
+def kv(d):
+    """Flat key=value lines.
+
+    This is what the Unity Setup tab parses. Flat on purpose: writing a JSON parser in C# to read
+    a diagnostic is a poor trade, and a format this dumb cannot be misparsed.
+    """
+    out = []
+    v = d["venv"]
+    out.append(f"venv.exists={int(bool(v['exists']))}")
+    out.append(f"venv.python={v['python']}")
+
+    deps = d["deps"]
+    mods = deps.get("mods", {})
+    missing = [m for m, r in mods.items() if not r["ok"]]
+    shadowed = [m for m, r in mods.items() if r["ok"] and not r.get("inside_venv")]
+    out.append(f"deps.total={len(REQUIRED)}")
+    out.append(f"deps.ok={len([m for m, r in mods.items() if r['ok']])}")
+    out.append(f"deps.missing={','.join(missing)}")
+    out.append(f"deps.shadowed={','.join(shadowed)}")
+    for m, r in mods.items():
+        out.append(f"dep.{m}={'ok' if r['ok'] else 'missing'}"
+                   f"{'' if r['ok'] else ':' + r.get('error', '')}")
+
+    usable = [i for i in d["interpreters"] if i.get("ok") and not i.get("disqualified")]
+    out.append(f"interp.usable={len(usable)}")
+    for i in usable:
+        out.append(f"interp.candidate={i['version']}|{i['invoked_as']}")
+    for i in d["interpreters"]:
+        if i.get("ok") and i.get("disqualified"):
+            out.append(f"interp.rejected={i['version']}|{i['invoked_as']}|{i['disqualified']}")
+
+    with_cookies = [p for p in d["chrome"] if (p["confluence_hosts"] or 0) > 0]
+    out.append(f"chrome.profiles={len(d['chrome'])}")
+    out.append(f"chrome.with_confluence={len(with_cookies)}")
+    for p in d["chrome"]:
+        out.append(f"chrome.profile={p['dir']}|{p['display_name'] or ''}|"
+                   f"{p['confluence_hosts'] if p['confluence_hosts'] is not None else -1}")
+
+    c = d["confluence"]
+    out.append(f"confluence.pat_exists={int(c['pat_file_exists'])}")
+    out.append(f"confluence.pat_mode={c['pat_file_mode'] or ''}")
+    out.append(f"confluence.email_set={int(c['email_set'])}")
+    out.append(f"confluence.pat_without_email={int(c['pat_without_email'])}")
+    out.append(f"python_extra_present={int(d['python_extra_present'])}")
+    return "\n".join(out)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--human", action="store_true", help="readable text instead of JSON")
+    ap.add_argument("--kv", action="store_true", help="flat key=value lines (for the Unity window)")
     args = ap.parse_args()
     data = collect()
-    print(human(data) if args.human else json.dumps(data, indent=2))
+    if args.kv:
+        print(kv(data))
+    elif args.human:
+        print(human(data))
+    else:
+        print(json.dumps(data, indent=2))
     return 0
 
 

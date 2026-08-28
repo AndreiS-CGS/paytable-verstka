@@ -1,0 +1,707 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using UnityEditor;
+using UnityEngine;
+
+namespace CGS.PaytableLibrary.Tooling
+{
+    /// <summary>
+    /// The checklist. Replaces SETUP.md's nine manual steps for everything that can be checked
+    /// mechanically, and states the rest plainly instead of pretending it can be automated.
+    ///
+    /// Nothing here runs on window open except free filesystem reads. A Setup tab that spawns
+    /// processes on every domain reload would be worse than the document it replaces.
+    /// </summary>
+    public sealed class SetupTab
+    {
+        readonly PaytableToolsWindow _w;
+        Dictionary<string, string> _env = new Dictionary<string, string>();
+        List<string> _envLines = new List<string>();
+        string _chosenProfile;
+        string _confluenceEmail;
+        string _patInput = "";
+        bool _installUserWide;
+
+        public SetupTab(PaytableToolsWindow w)
+        {
+            _w = w;
+            _confluenceEmail = EditorPrefs.GetString("CGS.Paytable.Setup.ConfluenceEmail", "");
+            _chosenProfile = EditorPrefs.GetString("CGS.Paytable.Setup.ChromeProfile", "");
+            _installUserWide = EditorPrefs.GetBool("CGS.Paytable.Setup.InstallUserWide", false);
+        }
+
+        public void EnsureChecks()
+        {
+            if (_w.Setup.Checks.Count > 0) return;
+            _w.Setup.Checks.AddRange(new[]
+            {
+                new SetupCheck { Id = CheckId.Package,    Title = "Package resolved" },
+                new SetupCheck { Id = CheckId.Python,     Title = "Python environment" },
+                new SetupCheck { Id = CheckId.Skills,     Title = "Skills installed" },
+                new SetupCheck { Id = CheckId.Confluence, Title = "Confluence access" },
+                new SetupCheck { Id = CheckId.UnityMcp,   Title = "unityMCP" },
+            });
+            CheckPackage();
+            CheckSkills();
+            CheckUnityMcp();
+        }
+
+        // ── drawing ─────────────────────────────────────────────────────────
+
+        public void Draw()
+        {
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                using (new EditorGUI.DisabledScope(_w.Busy))
+                {
+                    if (GUILayout.Button("Re-check all", GUILayout.Width(110))) RunAllChecks();
+                }
+                GUILayout.FlexibleSpace();
+                if (_w.Setup.LastFullRunAt > 0)
+                {
+                    var age = EditorApplication.timeSinceStartup - _w.Setup.LastFullRunAt;
+                    // Age matters: a stale green panel is the same false confidence this tool
+                    // exists to remove.
+                    GUILayout.Label($"checked {FormatAge(age)} ago", EditorStyles.miniLabel);
+                }
+                else GUILayout.Label("not checked yet", EditorStyles.miniLabel);
+            }
+
+            EditorGUILayout.Space(4);
+            foreach (var c in _w.Setup.Checks) DrawRow(c);
+
+            EditorGUILayout.Space(8);
+            DrawConfluenceControls();
+            EditorGUILayout.Space(8);
+            DrawEffectiveEnvironment();
+            EditorGUILayout.Space(8);
+            DrawManualSteps();
+        }
+
+        void DrawRow(SetupCheck c)
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    GUILayout.Label(PaytableToolsWindow.StatusIcon(c.Status), GUILayout.Width(20),
+                        GUILayout.Height(18));
+                    GUILayout.Label(c.Title, EditorStyles.boldLabel, GUILayout.Width(150));
+                    GUILayout.Label(c.Summary ?? "—", EditorStyles.label);
+                    GUILayout.FlexibleSpace();
+                    if (c.HasFix)
+                    {
+                        using (new EditorGUI.DisabledScope(_w.Busy))
+                        {
+                            if (GUILayout.Button(c.FixLabel, GUILayout.Width(130)))
+                            {
+                                if (!c.FixWritesOutsideProject || ConfirmOutsideWrite(c))
+                                    c.Fix();
+                            }
+                        }
+                    }
+                    if (c.Recheck != null)
+                    {
+                        using (new EditorGUI.DisabledScope(_w.Busy))
+                        {
+                            if (GUILayout.Button("↻", GUILayout.Width(24))) c.Recheck();
+                        }
+                    }
+                }
+                if (!string.IsNullOrEmpty(c.Detail))
+                {
+                    c.DetailExpanded = EditorGUILayout.Foldout(c.DetailExpanded, "details", true);
+                    if (c.DetailExpanded)
+                        EditorGUILayout.SelectableLabel(c.Detail, EditorStyles.wordWrappedMiniLabel,
+                            GUILayout.Height(Mathf.Min(220, 14 * (c.Detail.Split('\n').Length + 1))));
+                }
+            }
+        }
+
+        static bool ConfirmOutsideWrite(SetupCheck c)
+        {
+            var target = c.Id == CheckId.Python ? PaytablePaths.VenvDir : SkillsTargetDirStatic();
+            return EditorUtility.DisplayDialog(
+                "Write outside the project?",
+                $"{c.Title}\n\nThis writes to:\n{target}\n\nThat is outside the Unity project.",
+                "Continue", "Cancel");
+        }
+
+        static string SkillsTargetDirStatic() => PaytablePaths.ProjectSkillsDir;
+
+        string SkillsTargetDir =>
+            _installUserWide ? PaytablePaths.UserSkillsDir : PaytablePaths.ProjectSkillsDir;
+
+        static string FormatAge(double s) =>
+            s < 60 ? $"{s:F0}s" : s < 3600 ? $"{s / 60:F0} min" : $"{s / 3600:F1} h";
+
+        // ── checks ──────────────────────────────────────────────────────────
+
+        public void RunAllChecks()
+        {
+            CheckPackage();
+            CheckSkills();
+            CheckUnityMcp();
+            RunEnvDoctor();      // fills Python + Confluence when it finishes
+            _w.Setup.LastFullRunAt = EditorApplication.timeSinceStartup;
+        }
+
+        void CheckPackage()
+        {
+            var c = _w.Setup.Get(CheckId.Package);
+            var info = PaytablePaths.Info;
+            if (info == null)
+            {
+                c.Set(CheckStatus.Blocked, "package not resolved",
+                      "PackageInfo.FindForAssembly returned null. If the package IS in the project, " +
+                      "an unrelated compile error may be blocking assembly load — check the console " +
+                      "before suspecting this package.");
+                return;
+            }
+
+            var smoke = "";
+            try
+            {
+                var dist = PaytableGridMath.DistributeRows(5);
+                smoke = string.Join(",", dist);
+            }
+            catch (Exception e) { smoke = "threw " + e.GetType().Name; }
+
+            var detail = new StringBuilder()
+                .AppendLine($"{info.name}@{info.version}")
+                .AppendLine($"source:       {info.source}")
+                .AppendLine($"resolvedPath: {info.resolvedPath}")
+                .AppendLine($"writable:     {PaytablePaths.PackageIsWritable}")
+                .AppendLine($"Skills~:      {(Directory.Exists(PaytablePaths.SkillsSourceDir) ? "present" : "MISSING")}")
+                .AppendLine($"DistributeRows(5) = {smoke}  (expected 3,2)")
+                .ToString();
+
+            if (!Directory.Exists(PaytablePaths.SkillsSourceDir))
+                c.Set(CheckStatus.Wrong, "Skills~ missing from the package", detail);
+            else if (smoke != "3,2")
+                c.Set(CheckStatus.Wrong, "library C# did not load correctly", detail);
+            else
+                c.Set(CheckStatus.Ok, $"{info.version}, source {info.source}", detail);
+            c.Recheck = CheckPackage;
+        }
+
+        void CheckUnityMcp()
+        {
+            var c = _w.Setup.Get(CheckId.UnityMcp);
+            var found = UnityEditor.PackageManager.PackageInfo.GetAllRegisteredPackages()
+                .FirstOrDefault(p => p.name == "com.coplaydev.unity-mcp");
+            var embedded = Directory.Exists(Path.Combine(
+                PaytablePaths.UnityProjectRoot ?? "", "Packages", "com.coplaydev.unity-mcp"));
+
+            if (found != null || embedded)
+                c.Set(CheckStatus.Ok, "installed",
+                      "The assembly phase of paytable-verstka drives Unity through this bridge.\n" +
+                      "Whether the bridge is actually connected can only be confirmed by the agent " +
+                      "talking to it — this row only checks that the package is present.");
+            else
+                c.Set(CheckStatus.Warning, "not found",
+                      "Phases 1-4 (extraction, atlas) work without it. Phase 5 onward — assembling " +
+                      "the prefab — needs it. Installing it is outside this repo's scope.");
+            c.Recheck = CheckUnityMcp;
+        }
+
+        void RunEnvDoctor()
+        {
+            var py = _w.Setup.Get(CheckId.Python);
+            var conf = _w.Setup.Get(CheckId.Confluence);
+            py.Set(CheckStatus.Checking, "probing…");
+            conf.Set(CheckStatus.Checking, "probing…");
+
+            var script = PaytablePaths.EnvDoctorScript;
+            if (script == null)
+            {
+                py.Set(CheckStatus.Blocked, "env_doctor.py not found in the package");
+                conf.Set(CheckStatus.Blocked, "env_doctor.py not found in the package");
+                return;
+            }
+            // allowVenv:false — the doctor must run before the venv exists, and it is stdlib-only
+            // precisely so that works.
+            var python = ExecutableLocator.FindPython(false);
+            if (python == null)
+            {
+                py.Set(CheckStatus.Blocked, "no Python interpreter found",
+                       "Looked in the framework, homebrew, /usr/local, pyenv versions and the " +
+                       "login shell PATH. Unity does not inherit a login PATH, so a python3 that " +
+                       "works in your terminal can still be invisible here.");
+                return;
+            }
+
+            _w.StartProcess(python, new[] { script, "--kv" }, null, 120, p => ParseEnvDoctor(p));
+        }
+
+        void ParseEnvDoctor(ProcessProbe p)
+        {
+            var py = _w.Setup.Get(CheckId.Python);
+            var conf = _w.Setup.Get(CheckId.Confluence);
+
+            if (p.Status != ProcessProbe.State.Exited || p.ExitCode != 0)
+            {
+                var why = p.Status == ProcessProbe.State.TimedOut ? "timed out" : $"exit {p.ExitCode}";
+                py.Set(CheckStatus.Blocked, "probe failed (" + why + ")", p.OutputText);
+                conf.Set(CheckStatus.Blocked, "probe failed (" + why + ")", p.OutputText);
+                return;
+            }
+
+            _env = new Dictionary<string, string>();
+            _envLines = new List<string>();
+            foreach (var line in p.StdOutText.Split('\n'))
+            {
+                var t = line.Trim();
+                if (t.Length == 0) continue;
+                var i = t.IndexOf('=');
+                if (i <= 0) continue;
+                var k = t.Substring(0, i);
+                var v = t.Substring(i + 1);
+                _envLines.Add(t);
+                if (!_env.ContainsKey(k)) _env[k] = v;   // first wins; repeats are list entries
+            }
+
+            ApplyPython(py);
+            ApplyConfluence(conf);
+            _w.Setup.LastFullRunAt = EditorApplication.timeSinceStartup;
+        }
+
+        string Get(string k, string def = "") => _env.TryGetValue(k, out var v) ? v : def;
+        IEnumerable<string> All(string k) =>
+            _envLines.Where(l => l.StartsWith(k + "=")).Select(l => l.Substring(k.Length + 1));
+
+        void ApplyPython(SetupCheck c)
+        {
+            var venvExists = Get("venv.exists") == "1";
+            var missing = Get("deps.missing").Split(',').Where(s => s.Length > 0).ToArray();
+            var shadowed = Get("deps.shadowed").Split(',').Where(s => s.Length > 0).ToArray();
+            var okCount = Get("deps.ok", "0");
+            var total = Get("deps.total", "5");
+
+            var d = new StringBuilder();
+            d.AppendLine($"venv: {Get("venv.python")}  {(venvExists ? "present" : "MISSING")}");
+            d.AppendLine($"dependencies: {okCount}/{total} importable");
+            if (missing.Length > 0) d.AppendLine("  missing:  " + string.Join(", ", missing));
+            if (shadowed.Length > 0)
+            {
+                d.AppendLine("  shadowed: " + string.Join(", ", shadowed));
+                d.AppendLine("  (importable, but resolved from OUTSIDE the venv — an unversioned");
+                d.AppendLine("   copy is winning on sys.path, so what runs is not what you installed)");
+            }
+            d.AppendLine();
+            d.AppendLine("usable base interpreters:");
+            foreach (var i in All("interp.candidate")) d.AppendLine("  " + i.Replace("|", "  "));
+            foreach (var i in All("interp.rejected")) d.AppendLine("  rejected: " + i.Replace("|", "  "));
+            if (Get("python_extra_present") == "1")
+            {
+                d.AppendLine();
+                d.AppendLine("~/.local/lib/python-extra exists. It is unversioned and used to be placed");
+                d.AppendLine("ahead of the venv on sys.path. Remove it once the venv is healthy.");
+            }
+
+            c.FixWritesOutsideProject = true;
+            c.Detail = d.ToString();
+            c.Recheck = RunEnvDoctor;
+
+            if (!venvExists)
+            {
+                c.Set(CheckStatus.Missing, "venv not created", c.Detail);
+                c.FixLabel = "Create venv";
+                c.Fix = CreateVenv;
+            }
+            else if (missing.Length > 0)
+            {
+                c.Set(CheckStatus.Wrong, $"{missing.Length} package(s) missing: {string.Join(", ", missing)}",
+                      c.Detail);
+                c.FixLabel = "Install missing";
+                c.Fix = InstallRequirements;
+            }
+            else if (shadowed.Length > 0)
+            {
+                c.Set(CheckStatus.Warning, $"shadowed: {string.Join(", ", shadowed)}", c.Detail);
+                c.FixLabel = null;
+                c.Fix = null;
+            }
+            else
+            {
+                c.Set(CheckStatus.Ok, $"{okCount}/{total} packages, all inside the venv", c.Detail);
+                c.FixLabel = "Reinstall";
+                c.Fix = InstallRequirements;
+            }
+        }
+
+        void ApplyConfluence(SetupCheck c)
+        {
+            var withCookies = int.Parse(Get("chrome.with_confluence", "0"));
+            var patExists = Get("confluence.pat_exists") == "1";
+            var emailSet = Get("confluence.email_set") == "1";
+            var trap = Get("confluence.pat_without_email") == "1";
+
+            var d = new StringBuilder();
+            d.AppendLine("Chrome profiles (Confluence cookie hosts found, no decryption performed):");
+            foreach (var line in All("chrome.profile"))
+            {
+                var parts = line.Split('|');
+                var name = parts.Length > 1 && parts[1].Length > 0 ? parts[1] : "(unnamed)";
+                d.AppendLine($"  {parts[0],-12} {name,-28} {parts[2]} host(s)");
+            }
+            d.AppendLine();
+            d.AppendLine($"PAT file: {(patExists ? "present, mode " + Get("confluence.pat_mode") : "absent")}");
+            d.AppendLine($"CONFLUENCE_EMAIL: {(emailSet ? "set" : "NOT SET")}");
+            if (trap)
+            {
+                d.AppendLine();
+                d.AppendLine("A PAT with no CONFLUENCE_EMAIL cannot authenticate: the header would be");
+                d.AppendLine("built as Basic base64(\":token\"), which Confluence answers with");
+                d.AppendLine("\"403 Current user not permitted to use Confluence\" — indistinguishable");
+                d.AppendLine("from a real permissions problem. The script now skips Basic auth and");
+                d.AppendLine("falls back to cookies, but set the email or remove the file.");
+            }
+
+            c.Detail = d.ToString();
+            c.Recheck = RunEnvDoctor;
+            c.FixLabel = null;
+            c.Fix = null;
+
+            if (trap)
+                c.Set(CheckStatus.Wrong, "PAT present without CONFLUENCE_EMAIL", c.Detail);
+            else if (withCookies == 0)
+                c.Set(CheckStatus.Warning, "no Chrome profile holds Confluence cookies", c.Detail);
+            else
+                c.Set(CheckStatus.Ok, $"{withCookies} Chrome profile(s) with Confluence cookies", c.Detail);
+        }
+
+        void CheckSkills()
+        {
+            var c = _w.Setup.Get(CheckId.Skills);
+            var src = PaytablePaths.SkillsSourceDir;
+            var dst = SkillsTargetDir;
+            c.Recheck = CheckSkills;
+            c.FixWritesOutsideProject = _installUserWide;
+
+            if (src == null || !Directory.Exists(src))
+            {
+                c.Set(CheckStatus.Blocked, "no Skills~ in the package");
+                return;
+            }
+
+            var d = new StringBuilder();
+            d.AppendLine("source: " + src);
+            d.AppendLine("target: " + dst);
+            d.AppendLine();
+
+            int installed = 0, drifted = 0, absent = 0, linked = 0, badFrontmatter = 0;
+            foreach (var name in PaytablePaths.SkillNames)
+            {
+                var s = Path.Combine(src, name);
+                var t = Path.Combine(dst ?? "", name);
+                if (!Directory.Exists(t)) { absent++; d.AppendLine($"  {name,-20} not installed"); continue; }
+
+                var isLink = IsReparsePoint(t);
+                var fmOk = HasValidFrontmatter(Path.Combine(t, "SKILL.md"), name, out var fmWhy);
+                if (!fmOk) badFrontmatter++;
+
+                if (isLink)
+                {
+                    linked++;
+                    d.AppendLine($"  {name,-20} symlink → {ResolveLink(t)}{(fmOk ? "" : "  [" + fmWhy + "]")}");
+                    continue;
+                }
+                var same = TreeHash(s) == TreeHash(t);
+                if (same) installed++; else drifted++;
+                d.AppendLine($"  {name,-20} {(same ? "up to date" : "DIFFERS from the package")}" +
+                             (fmOk ? "" : "  [" + fmWhy + "]"));
+            }
+
+            if (badFrontmatter > 0)
+            {
+                d.AppendLine();
+                d.AppendLine("A skill whose SKILL.md frontmatter is malformed is silently ignored by");
+                d.AppendLine("Claude Code while looking perfectly installed — content identity alone");
+                d.AppendLine("would call it fine.");
+            }
+
+            c.Detail = d.ToString();
+            c.FixLabel = "Install / update";
+            c.Fix = InstallSkills;
+
+            if (badFrontmatter > 0) c.Set(CheckStatus.Wrong, $"{badFrontmatter} skill(s) with bad frontmatter", c.Detail);
+            else if (absent > 0) c.Set(CheckStatus.Missing, $"{absent} of {PaytablePaths.SkillNames.Length} not installed", c.Detail);
+            else if (drifted > 0) c.Set(CheckStatus.Warning, $"{drifted} differ(s) from the package", c.Detail);
+            else if (linked > 0) c.Set(CheckStatus.Ok, $"{linked} symlinked (developer mode), {installed} copied", c.Detail);
+            else c.Set(CheckStatus.Ok, "all up to date", c.Detail);
+        }
+
+        // ── fixes ───────────────────────────────────────────────────────────
+
+        void CreateVenv()
+        {
+            var candidates = All("interp.candidate").Select(l => l.Split('|')).ToList();
+            if (candidates.Count == 0)
+            {
+                EditorUtility.DisplayDialog("No usable interpreter",
+                    "No Python 3.10+ interpreter was found that can build a venv.", "OK");
+                return;
+            }
+            var basePython = candidates[0][1];
+            _w.StartProcess(basePython, new[] { "-m", "venv", PaytablePaths.VenvDir }, null, 180,
+                p =>
+                {
+                    if (p.Status == ProcessProbe.State.Exited && p.ExitCode == 0) InstallRequirements();
+                    else RunEnvDoctor();
+                });
+        }
+
+        void InstallRequirements()
+        {
+            var req = PaytablePaths.RequirementsFile;
+            var args = new List<string>
+            {
+                "-m", "pip", "install", "--disable-pip-version-check", "--no-input",
+                "--require-virtualenv",
+                // Without a wheel, pip falls into a source build that runs for minutes and dies in
+                // compiler output. This turns that into an immediate, readable failure.
+                "--only-binary=:all:",
+            };
+            if (req != null) { args.Add("-r"); args.Add(req); }
+            else
+            {
+                // A git-resolved package has only library/, so requirements.txt is not on disk.
+                args.AddRange(new[] { "requests", "browser-cookie3", "pillow", "numpy", "scipy" });
+            }
+            _w.StartProcess(PaytablePaths.VenvPython, args, null, 900, _ => RunEnvDoctor());
+        }
+
+        void InstallSkills()
+        {
+            var src = PaytablePaths.SkillsSourceDir;
+            var dst = SkillsTargetDir;
+            if (src == null || dst == null) return;
+
+            var relinked = new List<string>();
+            foreach (var name in PaytablePaths.SkillNames)
+            {
+                var t = Path.Combine(dst, name);
+                // Never silently replace a symlink: that is a developer's live setup, and eating it
+                // would look like the tool losing their work.
+                if (Directory.Exists(t) && IsReparsePoint(t))
+                {
+                    if (!EditorUtility.DisplayDialog("Replace a symlink?",
+                            $"{t}\n\ncurrently points at\n{ResolveLink(t)}\n\n" +
+                            "Replacing it with a copy ends developer mode for this skill.",
+                            "Replace", "Skip"))
+                        continue;
+                    Directory.Delete(t);
+                    relinked.Add(name);
+                }
+                CopyTree(Path.Combine(src, name), t);
+            }
+            AssetDatabase.Refresh();
+            CheckSkills();
+        }
+
+        // ── confluence controls ─────────────────────────────────────────────
+
+        void DrawConfluenceControls()
+        {
+            EditorGUILayout.LabelField("Confluence settings", EditorStyles.boldLabel);
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                var profiles = All("chrome.profile").Select(l => l.Split('|')).ToList();
+                if (profiles.Count > 0)
+                {
+                    var labels = profiles.Select(p =>
+                        $"{(p[1].Length > 0 ? p[1] : p[0])}  ({p[2]} Confluence cookies)").ToArray();
+                    var idx = Mathf.Max(0, profiles.FindIndex(p => p[0] == _chosenProfile));
+                    var newIdx = EditorGUILayout.Popup("Chrome profile", idx, labels);
+                    if (newIdx != idx || _chosenProfile != profiles[newIdx][0])
+                        _chosenProfile = profiles[newIdx][0];
+                }
+                else EditorGUILayout.LabelField("Chrome profile", "run Re-check all first");
+
+                _confluenceEmail = EditorGUILayout.TextField("CONFLUENCE_EMAIL", _confluenceEmail);
+
+                EditorGUILayout.LabelField("Personal access token (optional)", EditorStyles.miniLabel);
+                _patInput = EditorGUILayout.PasswordField("PAT", _patInput);
+                EditorGUILayout.LabelField(
+                    PaytablePaths.IsWindows
+                        ? "Stored at ~/.confluence_pat. Note: file permissions are NOT restricted on Windows."
+                        : "Stored at ~/.confluence_pat with mode 600. Never shown again once written.",
+                    EditorStyles.miniLabel);
+
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    if (GUILayout.Button("Save settings", GUILayout.Width(120))) SaveConfluenceSettings();
+                    GUILayout.FlexibleSpace();
+                    _installUserWide = GUILayout.Toggle(_installUserWide,
+                        "install skills user-wide (~/.claude/skills)");
+                }
+            }
+        }
+
+        void SaveConfluenceSettings()
+        {
+            EditorPrefs.SetString("CGS.Paytable.Setup.ConfluenceEmail", _confluenceEmail ?? "");
+            EditorPrefs.SetString("CGS.Paytable.Setup.ChromeProfile", _chosenProfile ?? "");
+            EditorPrefs.SetBool("CGS.Paytable.Setup.InstallUserWide", _installUserWide);
+
+            // Non-secret settings go to the config file the Python scripts read. Never ~/.zshrc:
+            // shell-specific, useless on Windows, and invisible to a GUI-launched Unity.
+            var cfg = PaytablePaths.ToolsConfigFile;
+            if (cfg != null)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(cfg));
+                var json = "{\n" +
+                           $"  \"CHROME_PROFILE\": {Esc(_chosenProfile)},\n" +
+                           $"  \"CONFLUENCE_EMAIL\": {Esc(_confluenceEmail)}\n" +
+                           "}\n";
+                File.WriteAllText(cfg, json);
+            }
+
+            if (!string.IsNullOrEmpty(_patInput))
+            {
+                File.WriteAllText(PaytablePaths.ConfluencePatFile, _patInput.Trim());
+                if (!PaytablePaths.IsWindows)
+                    _w.StartProcess("/bin/chmod", new[] { "600", PaytablePaths.ConfluencePatFile }, null, 20);
+                _patInput = "";
+            }
+            RunEnvDoctor();
+        }
+
+        static string Esc(string s) =>
+            "\"" + (s ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+
+        // ── informational panels ────────────────────────────────────────────
+
+        void DrawEffectiveEnvironment()
+        {
+            EditorGUILayout.LabelField("Effective settings", EditorStyles.boldLabel);
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                Row("venv python", PaytablePaths.VenvPython + (PaytablePaths.VenvExists ? "" : "  (missing)"));
+                Row("config file", PaytablePaths.ToolsConfigFile);
+                Row("skills target", SkillsTargetDir);
+                Row("package", PaytablePaths.PackageRoot);
+                Row("git repo root", PaytablePaths.GitRepoRoot);
+            }
+        }
+
+        static void Row(string k, string v)
+        {
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                GUILayout.Label(k, EditorStyles.miniLabel, GUILayout.Width(110));
+                EditorGUILayout.SelectableLabel(v ?? "—", EditorStyles.miniLabel, GUILayout.Height(14));
+            }
+        }
+
+        void DrawManualSteps()
+        {
+            EditorGUILayout.LabelField("Steps only you can do", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(
+                "These never turn green on their own — that is not a bug:\n\n" +
+                "• Log into playstudios.atlassian.net in the Chrome profile you selected above.\n" +
+                "• On the first extraction macOS asks for Keychain access to read Chrome's cookies. " +
+                "Choose Always Allow — a denied prompt shows up later only as an exception name with " +
+                "no message, which is very hard to diagnose.\n" +
+                "• Repo access on GitHub is granted by someone with admin, and `gh auth login` is a " +
+                "browser flow.\n" +
+                "• Installing the unityMCP server itself is outside this repo's scope.",
+                MessageType.None);
+        }
+
+        // ── filesystem helpers ──────────────────────────────────────────────
+
+        static bool IsReparsePoint(string path)
+        {
+            try
+            {
+                return (new DirectoryInfo(path).Attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch { return false; }
+        }
+
+        static string ResolveLink(string path)
+        {
+            try
+            {
+                var fi = new DirectoryInfo(path);
+                // Good enough for display; the content hash is what actually decides drift.
+                return fi.FullName;
+            }
+            catch { return path; }
+        }
+
+        /// <summary>
+        /// Content identity, normalised for line endings — a Windows checkout with
+        /// core.autocrlf=true would otherwise report permanent drift.
+        /// </summary>
+        static string TreeHash(string dir)
+        {
+            if (!Directory.Exists(dir)) return "";
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+            {
+                var files = Directory.GetFiles(dir, "*", SearchOption.AllDirectories)
+                    .Where(f => !f.Contains("__pycache__") && !f.EndsWith(".pyc")
+                                && !f.EndsWith(".DS_Store"))
+                    .Select(f => new { Rel = f.Substring(dir.Length).Replace('\\', '/'), Full = f })
+                    .OrderBy(x => x.Rel, StringComparer.Ordinal)
+                    .ToList();
+                var acc = new StringBuilder();
+                foreach (var f in files)
+                {
+                    acc.Append(f.Rel).Append('\n');
+                    try
+                    {
+                        var bytes = File.ReadAllBytes(f.Full);
+                        var text = Encoding.UTF8.GetString(bytes).Replace("\r\n", "\n");
+                        acc.Append(Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(text))));
+                    }
+                    catch { acc.Append("unreadable"); }
+                    acc.Append('\n');
+                }
+                return Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(acc.ToString())));
+            }
+        }
+
+        static bool HasValidFrontmatter(string skillMd, string expectedName, out string why)
+        {
+            why = null;
+            if (!File.Exists(skillMd)) { why = "no SKILL.md"; return false; }
+            string text;
+            try { text = File.ReadAllText(skillMd); }
+            catch (Exception e) { why = e.GetType().Name; return false; }
+            if (!text.StartsWith("---")) { why = "no frontmatter block"; return false; }
+            var end = text.IndexOf("\n---", 3, StringComparison.Ordinal);
+            if (end < 0) { why = "frontmatter not terminated"; return false; }
+            var fm = text.Substring(3, end - 3);
+            if (fm.IndexOf("name:", StringComparison.Ordinal) < 0) { why = "no name:"; return false; }
+            if (fm.IndexOf("description:", StringComparison.Ordinal) < 0)
+            {
+                why = "no description: — the skill loads but can only be invoked by exact name";
+                return false;
+            }
+            return true;
+        }
+
+        static void CopyTree(string src, string dst)
+        {
+            Directory.CreateDirectory(dst);
+            foreach (var dir in Directory.GetDirectories(src, "*", SearchOption.AllDirectories))
+            {
+                if (dir.Contains("__pycache__")) continue;
+                Directory.CreateDirectory(dir.Replace(src, dst));
+            }
+            foreach (var file in Directory.GetFiles(src, "*", SearchOption.AllDirectories))
+            {
+                if (file.Contains("__pycache__") || file.EndsWith(".pyc")) continue;
+                var target = file.Replace(src, dst);
+                Directory.CreateDirectory(Path.GetDirectoryName(target));
+                File.Copy(file, target, true);
+            }
+        }
+    }
+}
