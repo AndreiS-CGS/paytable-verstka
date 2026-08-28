@@ -12,34 +12,35 @@ would mean the diagnostic tool needs the thing it is diagnosing.
 
 Two things it refuses to do, both on purpose:
 
-  * It never decrypts a cookie. Chrome's cookie values are encrypted and reading them triggers a
-    macOS Keychain prompt — a terrible surprise to get from merely opening a window. `host_key` is
-    stored in plaintext, so a read-only SQLite query answers "is this profile logged into Confluence"
-    without touching a single encrypted byte.
-  * It never reads, prints or returns the Confluence token. Existence, size and permission bits only.
+  * It never reads, prints or returns the Confluence token. It builds the auth header to ask
+    Confluence who the token belongs to, and reports only the answer.
+  * It never touches a browser. Cookie auth is gone from this pipeline entirely — a token fetches
+    page text, the attachment list and the images, so cookies bought nothing and cost a macOS
+    Keychain prompt, a native dependency, and support for exactly one browser.
 """
 
 import argparse
+import base64
 import glob
 import json
 import os
 import re
-import sqlite3
 import subprocess
 import sys
-import tempfile
 import shutil
+import urllib.error
+import urllib.request
 from pathlib import Path
 
-REQUIRED = ("requests", "browser_cookie3", "PIL", "numpy", "scipy")
+REQUIRED = ("requests", "PIL", "numpy", "scipy")
 VENV_DIR = Path.home() / ".venvs" / "paytable-tools"
-CONFLUENCE_HOST_SUFFIX = "atlassian.net"
+DEFAULT_CONFLUENCE_BASE = "https://playstudios.atlassian.net"
 
 # Reported so the window can show what is actually in effect. No secrets: the PAT lives in a file
 # and OPENROUTER_* is gone from this codebase entirely.
 TRACKED_ENV = (
-    "PAYTABLE_PYTHON", "PAYTABLE_OUT", "CHROME_PROFILE", "CHROME_COOKIE_FILE",
-    "CONFLUENCE_EMAIL", "CONFLUENCE_PAT_FILE", "PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV",
+    "PAYTABLE_PYTHON", "PAYTABLE_OUT", "CONFLUENCE_EMAIL", "CONFLUENCE_PAT_FILE",
+    "CONFLUENCE_BASE_URL", "PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV",
 )
 
 # What each interpreter is asked about itself. -I (isolated) is important: it ignores PYTHONPATH
@@ -223,103 +224,56 @@ def probe_deps(python_path):
     return data
 
 
-# ── chrome ──────────────────────────────────────────────────────────────────
-
-def _chrome_base_dirs():
-    if sys.platform == "darwin":
-        return [os.path.expanduser("~/Library/Application Support/Google/Chrome")]
-    if os.name == "nt":
-        local = os.environ.get("LOCALAPPDATA")
-        return [os.path.join(local, "Google", "Chrome", "User Data")] if local else []
-    return [os.path.expanduser("~/.config/google-chrome"),
-            os.path.expanduser("~/.config/chromium")]
-
-
-def _natural_key(name):
-    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", name)]
-
-
-def _display_names(base):
-    """Human profile names, so the window can offer "CGS_" instead of "Profile 3"."""
-    names = {}
-    try:
-        with open(os.path.join(base, "Local State"), encoding="utf-8") as f:
-            cache = json.load(f).get("profile", {}).get("info_cache", {})
-        for d, meta in cache.items():
-            n = meta.get("name")
-            if n:
-                names[d] = n
-    except Exception:
-        pass
-    return names
-
-
-def _count_confluence_cookies(cookie_file):
-    """Count Confluence host entries WITHOUT decrypting anything (host_key is plaintext).
-
-    Copies the DB first: Chrome holds a lock while running, which is the normal state.
-    """
-    tmp = None
-    try:
-        fd, tmp = tempfile.mkstemp(suffix=".sqlite")
-        os.close(fd)
-        shutil.copyfile(cookie_file, tmp)
-        con = sqlite3.connect(f"file:{tmp}?mode=ro", uri=True)
-        try:
-            rows = con.execute(
-                "SELECT COUNT(DISTINCT host_key) FROM cookies WHERE host_key LIKE ?",
-                ("%" + CONFLUENCE_HOST_SUFFIX,)).fetchone()
-            return int(rows[0]) if rows else 0, None
-        finally:
-            con.close()
-    except Exception as e:
-        return None, f"{type(e).__name__}: {e}"
-    finally:
-        if tmp and os.path.exists(tmp):
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
-
-
-def scan_chrome():
-    profiles = []
-    for base in _chrome_base_dirs():
-        if not os.path.isdir(base):
-            continue
-        names = _display_names(base)
-        try:
-            dirs = sorted(os.listdir(base), key=_natural_key)
-        except OSError:
-            continue
-        for d in dirs:
-            if d != "Default" and not d.startswith("Profile "):
-                continue
-            for parts in (("Network", "Cookies"), ("Cookies",)):
-                cand = os.path.join(base, d, *parts)
-                if not os.path.exists(cand):
-                    continue
-                n, err = _count_confluence_cookies(cand)
-                profiles.append({
-                    "dir": d,
-                    "display_name": names.get(d),
-                    "cookie_file": cand,
-                    "confluence_hosts": n,
-                    "error": err,
-                    "mtime": os.path.getmtime(cand),
-                })
-                break
-    return profiles
-
-
 # ── confluence config ───────────────────────────────────────────────────────
+
+def probe_token(email, base_url, timeout=12):
+    """Ask Confluence who this token belongs to.
+
+    The only check that proves a token works. Presence of ~/.confluence_pat proves nothing: the
+    previous token here sat on disk for three months after expiring, and every check that looked
+    only at the file reported it as configured.
+
+    Reads the token to build the header and never returns, prints or logs it.
+    """
+    pat_setting, _ = setting("CONFLUENCE_PAT_FILE", "~/.confluence_pat")
+    path = os.path.expanduser(pat_setting)
+    if not os.path.isfile(path):
+        return {"state": "absent"}
+    if not email:
+        return {"state": "no_email"}
+    try:
+        with open(path, encoding="utf-8") as f:
+            token = f.read().strip()
+    except Exception as e:
+        return {"state": "unreadable", "detail": f"{type(e).__name__}: {e}"}
+    if not token:
+        return {"state": "empty"}
+
+    cred = base64.b64encode(f"{email}:{token}".encode()).decode()
+    req = urllib.request.Request(
+        base_url.rstrip("/") + "/wiki/rest/api/user/current",
+        headers={"Accept": "application/json", "Authorization": "Basic " + cred})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            body = json.loads(r.read().decode("utf-8", "replace"))
+            return {"state": "ok",
+                    "account": body.get("email") or body.get("displayName") or "(unnamed)"}
+    except urllib.error.HTTPError as e:
+        # 401 means the pair was parsed and rejected — expired, revoked, or a different account.
+        # 403 means it was not accepted as credentials at all and the request fell through to
+        # anonymous. The distinction is worth keeping: it says whether to re-issue or to look
+        # at the header construction.
+        return {"state": "rejected", "http": e.code}
+    except Exception as e:
+        # Offline is not the same as unauthorised, and must never be reported as a failed token.
+        return {"state": "unreachable", "detail": f"{type(e).__name__}: {e}"}
+
 
 def scan_confluence():
     pat_setting, _ = setting("CONFLUENCE_PAT_FILE", "~/.confluence_pat")
     pat = os.path.expanduser(pat_setting)
     exists = os.path.isfile(pat)
     email, email_source = setting("CONFLUENCE_EMAIL")
-    profile, profile_source = setting("CHROME_PROFILE")
     info = {
         "pat_file": pat,
         "pat_file_exists": exists,
@@ -328,12 +282,11 @@ def scan_confluence():
         "email_set": bool(email),
         "email": email or None,
         "email_source": email_source,
-        "chrome_profile": profile or None,
-        "chrome_profile_source": profile_source,
     }
-    # The live 403 trap: with a token and no identity the header becomes base64(":token"), and
-    # Confluence answers "Current user not permitted to use Confluence" with no further clue.
     info["pat_without_email"] = bool(exists and not email)
+    base, _ = setting("CONFLUENCE_BASE_URL", DEFAULT_CONFLUENCE_BASE)
+    info["base_url"] = base
+    info["token"] = probe_token(email, base)
     return info
 
 
@@ -349,7 +302,6 @@ def collect():
                  "exists": venv_python.is_file()},
         "interpreters": scan_interpreters(),
         "deps": probe_deps(venv_python),
-        "chrome": scan_chrome(),
         "confluence": scan_confluence(),
         "env": {k: os.environ.get(k) for k in TRACKED_ENV},
         "python_extra_present": os.path.isdir(os.path.expanduser("~/.local/lib/python-extra")),
@@ -377,23 +329,26 @@ def human(d):
         else:
             note = i["disqualified"] or "usable"
             out.append(f"  {i['version']:8} {i['invoked_as']}  [{note}]")
-    out.append("")
-    out.append("chrome profiles:")
-    for p in d["chrome"]:
-        label = p["display_name"] or p["dir"]
-        n = p["confluence_hosts"]
-        out.append(f"  {p['dir']:12} {label:28} confluence hosts: "
-                   f"{n if n is not None else 'unreadable (' + str(p['error']) + ')'}")
     c = d["confluence"]
     out.append("")
     out.append(f"confluence: PAT file {'present' if c['pat_file_exists'] else 'absent'}"
                f"{' mode ' + c['pat_file_mode'] if c['pat_file_mode'] else ''}, "
                f"email {'set (' + c['email_source'] + ')' if c['email_set'] else 'NOT SET'}"
-               f", chrome profile "
-               f"{c['chrome_profile'] + ' (' + c['chrome_profile_source'] + ')' if c['chrome_profile'] else 'not pinned'}")
+)
+    t = c["token"]
+    if t["state"] == "ok":
+        out.append(f"  token: VALID, authenticated as {t['account']}")
+    elif t["state"] == "rejected":
+        out.append(f"  token: REJECTED (HTTP {t['http']}) — expired, revoked, or issued under a "
+                   f"different account. Create a new one at "
+                   f"id.atlassian.com/manage-profile/security/api-tokens")
+    elif t["state"] == "unreachable":
+        out.append(f"  token: could not be checked ({t.get('detail')}) — offline?")
+    elif t["state"] != "absent":
+        out.append(f"  token: {t['state']}")
     if c["pat_without_email"]:
-        out.append("  WARNING: PAT present with no CONFLUENCE_EMAIL — Basic auth cannot work "
-                   "and would 403; the script falls back to cookies.")
+        out.append("  WARNING: token present with no CONFLUENCE_EMAIL — Basic auth needs both, "
+                   "so nothing can authenticate.")
     if d["python_extra_present"]:
         out.append("  NOTE: ~/.local/lib/python-extra exists. It is unversioned and used to "
                    "shadow the venv; remove it once the venv is healthy.")
@@ -431,23 +386,19 @@ def kv(d):
         if i.get("ok") and i.get("disqualified"):
             out.append(f"interp.rejected={i['version']}|{i['invoked_as']}|{i['disqualified']}")
 
-    with_cookies = [p for p in d["chrome"] if (p["confluence_hosts"] or 0) > 0]
-    out.append(f"chrome.profiles={len(d['chrome'])}")
-    out.append(f"chrome.with_confluence={len(with_cookies)}")
-    for p in d["chrome"]:
-        out.append(f"chrome.profile={p['dir']}|{p['display_name'] or ''}|"
-                   f"{p['confluence_hosts'] if p['confluence_hosts'] is not None else -1}")
-
     c = d["confluence"]
     out.append(f"confluence.pat_exists={int(c['pat_file_exists'])}")
     out.append(f"confluence.pat_mode={c['pat_file_mode'] or ''}")
     out.append(f"confluence.email_set={int(c['email_set'])}")
     out.append(f"confluence.email_source={c['email_source']}")
-    out.append(f"confluence.chrome_profile={c['chrome_profile'] or ''}")
-    out.append(f"confluence.chrome_profile_source={c['chrome_profile_source']}")
     out.append(f"config.file={_config_path() or ''}")
     out.append(f"config.exists={int(bool(_config()))}")
     out.append(f"confluence.pat_without_email={int(c['pat_without_email'])}")
+    t = c["token"]
+    out.append(f"confluence.token_state={t['state']}")
+    out.append(f"confluence.token_account={t.get('account', '')}")
+    out.append(f"confluence.token_http={t.get('http', '')}")
+    out.append(f"confluence.base_url={c['base_url']}")
     out.append(f"python_extra_present={int(d['python_extra_present'])}")
     return "\n".join(out)
 

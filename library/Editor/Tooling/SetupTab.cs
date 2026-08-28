@@ -20,7 +20,6 @@ namespace CGS.PaytableLibrary.Tooling
         readonly PaytableToolsWindow _w;
         Dictionary<string, string> _env = new Dictionary<string, string>();
         List<string> _envLines = new List<string>();
-        string _chosenProfile;
         string _confluenceEmail;
         string _patInput = "";
         bool _installUserWide;
@@ -29,7 +28,6 @@ namespace CGS.PaytableLibrary.Tooling
         {
             _w = w;
             _confluenceEmail = EditorPrefs.GetString("CGS.Paytable.Setup.ConfluenceEmail", "");
-            _chosenProfile = EditorPrefs.GetString("CGS.Paytable.Setup.ChromeProfile", "");
             _installUserWide = EditorPrefs.GetBool("CGS.Paytable.Setup.InstallUserWide", false);
         }
 
@@ -335,34 +333,55 @@ namespace CGS.PaytableLibrary.Tooling
 
         void ApplyConfluence(SetupCheck c)
         {
-            var withCookies = int.Parse(Get("chrome.with_confluence", "0"));
             var patExists = Get("confluence.pat_exists") == "1";
             var emailSet = Get("confluence.email_set") == "1";
-            var trap = Get("confluence.pat_without_email") == "1";
+            var tokenState = Get("confluence.token_state");
 
             var d = new StringBuilder();
-            d.AppendLine("Chrome profiles (Confluence cookie hosts found, no decryption performed):");
-            foreach (var line in All("chrome.profile"))
-            {
-                var parts = line.Split('|');
-                var name = parts.Length > 1 && parts[1].Length > 0 ? parts[1] : "(unnamed)";
-                d.AppendLine($"  {parts[0],-12} {name,-28} {parts[2]} host(s)");
-            }
-            d.AppendLine();
+            d.AppendLine($"site: {Get("confluence.base_url")}");
             d.AppendLine($"config file: {Get("config.file")}" +
                          (Get("config.exists") == "1" ? "" : "   (not written yet)"));
-            var pinned = Get("confluence.chrome_profile");
-            d.AppendLine($"CHROME_PROFILE: {(pinned.Length > 0 ? pinned + "  [from " + Get("confluence.chrome_profile_source") + "]" : "not pinned — the script picks the first profile with cookies")}");
-            d.AppendLine($"PAT file: {(patExists ? "present, mode " + Get("confluence.pat_mode") : "absent")}");
+            d.AppendLine($"token file: {(patExists ? "present, mode " + Get("confluence.pat_mode") : "absent")}");
             d.AppendLine($"CONFLUENCE_EMAIL: {(emailSet ? "set  [from " + Get("confluence.email_source") + "]" : "NOT SET")}");
-            if (trap)
+            d.AppendLine();
+
+            switch (tokenState)
             {
-                d.AppendLine();
-                d.AppendLine("A PAT with no CONFLUENCE_EMAIL cannot authenticate: the header would be");
-                d.AppendLine("built as Basic base64(\":token\"), which Confluence answers with");
-                d.AppendLine("\"403 Current user not permitted to use Confluence\" — indistinguishable");
-                d.AppendLine("from a real permissions problem. The script now skips Basic auth and");
-                d.AppendLine("falls back to cookies, but set the email or remove the file.");
+                case "ok":
+                    d.AppendLine($"Token: VALID — authenticated as {Get("confluence.token_account")}");
+                    d.AppendLine();
+                    d.AppendLine("This is the only credential the pipeline needs. A token fetches the page");
+                    d.AppendLine("text, the attachment list AND the images — the image download redirects to");
+                    d.AppendLine("a pre-signed media URL that needs no credential of its own. Browser cookie");
+                    d.AppendLine("auth used to be the primary path and is gone: it bought nothing and cost a");
+                    d.AppendLine("macOS Keychain prompt, a native dependency, and Chrome-only support.");
+                    break;
+                case "rejected":
+                    d.AppendLine($"Token: REJECTED (HTTP {Get("confluence.token_http")}).");
+                    d.AppendLine();
+                    d.AppendLine("HTTP 401 means the credentials were parsed and turned down — expired,");
+                    d.AppendLine("revoked, or issued under a different account than CONFLUENCE_EMAIL. Tokens");
+                    d.AppendLine("now carry an expiry date, and an expired one looks exactly like a working");
+                    d.AppendLine("one on disk.");
+                    d.AppendLine();
+                    d.AppendLine("Create a new one — the plain \"Create API token\", NOT \"with scopes\" — at");
+                    d.AppendLine("id.atlassian.com/manage-profile/security/api-tokens, and paste it below.");
+                    d.AppendLine("Scoped tokens go through api.atlassian.com/ex/confluence/<cloudId> instead");
+                    d.AppendLine("of the site URL, which this pipeline does not use.");
+                    break;
+                case "no_email":
+                    d.AppendLine("Token present, but CONFLUENCE_EMAIL is not set. Basic auth needs both.");
+                    break;
+                case "absent":
+                    d.AppendLine("No token file. Nothing can authenticate without it.");
+                    break;
+                case "unreachable":
+                    d.AppendLine("Could not reach Confluence to verify the token — offline?");
+                    d.AppendLine("Offline is not the same as unauthorised, so this is not counted as failure.");
+                    break;
+                default:
+                    d.AppendLine("Token: " + tokenState);
+                    break;
             }
 
             c.Detail = d.ToString();
@@ -370,16 +389,27 @@ namespace CGS.PaytableLibrary.Tooling
             c.FixLabel = null;
             c.Fix = null;
 
-            var pinnedName = Get("confluence.chrome_profile");
-            if (trap)
-                c.Set(CheckStatus.Wrong, "PAT present without CONFLUENCE_EMAIL", c.Detail);
-            else if (withCookies == 0)
-                c.Set(CheckStatus.Warning, "no Chrome profile holds Confluence cookies", c.Detail);
-            else if (pinnedName.Length == 0)
-                c.Set(CheckStatus.Warning,
-                      $"{withCookies} profile(s) with cookies, none pinned", c.Detail);
-            else
-                c.Set(CheckStatus.Ok, $"profile \"{pinnedName}\", cookies present", c.Detail);
+            switch (tokenState)
+            {
+                case "ok":
+                    c.Set(CheckStatus.Ok, "token valid — " + Get("confluence.token_account"), c.Detail);
+                    break;
+                case "rejected":
+                    c.Set(CheckStatus.Wrong,
+                          $"token rejected (HTTP {Get("confluence.token_http")}) — expired or revoked",
+                          c.Detail);
+                    break;
+                case "unreachable":
+                    // Blocked, never Ok and never a failure: we simply do not know.
+                    c.Set(CheckStatus.Blocked, "offline — could not verify the token", c.Detail);
+                    break;
+                case "no_email":
+                    c.Set(CheckStatus.Wrong, "token present without CONFLUENCE_EMAIL", c.Detail);
+                    break;
+                default:
+                    c.Set(CheckStatus.Missing, "no API token configured", c.Detail);
+                    break;
+            }
         }
 
         void CheckSkills()
@@ -478,7 +508,7 @@ namespace CGS.PaytableLibrary.Tooling
             else
             {
                 // A git-resolved package has only library/, so requirements.txt is not on disk.
-                args.AddRange(new[] { "requests", "browser-cookie3", "pillow", "numpy", "scipy" });
+                args.AddRange(new[] { "requests", "pillow", "numpy", "scipy" });
             }
             _w.StartProcess(PaytablePaths.VenvPython, args, null, 900, _ => RunEnvDoctor());
         }
@@ -518,22 +548,11 @@ namespace CGS.PaytableLibrary.Tooling
             EditorGUILayout.LabelField("Confluence settings", EditorStyles.boldLabel);
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
-                var profiles = All("chrome.profile").Select(l => l.Split('|')).ToList();
-                if (profiles.Count > 0)
-                {
-                    var labels = profiles.Select(p =>
-                        $"{(p[1].Length > 0 ? p[1] : p[0])}  ({p[2]} Confluence cookies)").ToArray();
-                    var idx = Mathf.Max(0, profiles.FindIndex(p => p[0] == _chosenProfile));
-                    var newIdx = EditorGUILayout.Popup("Chrome profile", idx, labels);
-                    if (newIdx != idx || _chosenProfile != profiles[newIdx][0])
-                        _chosenProfile = profiles[newIdx][0];
-                }
-                else EditorGUILayout.LabelField("Chrome profile", "run Re-check all first");
-
                 _confluenceEmail = EditorGUILayout.TextField("CONFLUENCE_EMAIL", _confluenceEmail);
 
-                EditorGUILayout.LabelField("Personal access token (optional)", EditorStyles.miniLabel);
-                _patInput = EditorGUILayout.PasswordField("PAT", _patInput);
+                EditorGUILayout.LabelField(
+                    "API token — required, this is the only credential", EditorStyles.miniLabel);
+                _patInput = EditorGUILayout.PasswordField("API token", _patInput);
                 EditorGUILayout.LabelField(
                     PaytablePaths.IsWindows
                         ? "Stored at ~/.confluence_pat. Note: file permissions are NOT restricted on Windows."
@@ -553,7 +572,6 @@ namespace CGS.PaytableLibrary.Tooling
         void SaveConfluenceSettings()
         {
             EditorPrefs.SetString("CGS.Paytable.Setup.ConfluenceEmail", _confluenceEmail ?? "");
-            EditorPrefs.SetString("CGS.Paytable.Setup.ChromeProfile", _chosenProfile ?? "");
             EditorPrefs.SetBool("CGS.Paytable.Setup.InstallUserWide", _installUserWide);
 
             // Non-secret settings go to the config file the Python scripts read. Never ~/.zshrc:
@@ -563,7 +581,6 @@ namespace CGS.PaytableLibrary.Tooling
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(cfg));
                 var json = "{\n" +
-                           $"  \"CHROME_PROFILE\": {Esc(_chosenProfile)},\n" +
                            $"  \"CONFLUENCE_EMAIL\": {Esc(_confluenceEmail)}\n" +
                            "}\n";
                 File.WriteAllText(cfg, json);
@@ -642,10 +659,9 @@ namespace CGS.PaytableLibrary.Tooling
             EditorGUILayout.LabelField("Steps only you can do", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
                 "These never turn green on their own — that is not a bug:\n\n" +
-                "• Log into playstudios.atlassian.net in the Chrome profile you selected above.\n" +
-                "• On the first extraction macOS asks for Keychain access to read Chrome's cookies. " +
-                "Choose Always Allow — a denied prompt shows up later only as an exception name with " +
-                "no message, which is very hard to diagnose.\n" +
+                "• Create the API token yourself at id.atlassian.com — the plain kind, not \"with " +
+                "scopes\" — and give it the longest expiry offered. Tokens expire, and an expired one " +
+                "looks identical to a working one on disk; the row above is what catches it.\n" +
                 "• Repo access on GitHub is granted by someone with admin, and `gh auth login` is a " +
                 "browser flow.\n" +
                 "• Installing the unityMCP server itself is outside this repo's scope.",

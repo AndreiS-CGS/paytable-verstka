@@ -50,8 +50,10 @@ magenta placeholder, a reported mismatch, an extra page — over one that silent
   dir inside the Unity project (e.g. `<UnityRoot>/_verstka/<Game>/`). Don't assume a personal Obsidian
   vault.
 - **Confluence auth:** the API token (PAT) path is unreliable (often 403, or a huge-page render
-  timeout on first try — retry once before assuming failure); use the BROWSER COOKIE session
-  instead (each colleague's own logged-in profile). See `paytable-pipeline`.
+  Atlassian API token at `~/.confluence_pat` plus `CONFLUENCE_EMAIL`, both set through the Unity
+  window. Browser cookie auth has been removed — a token fetches text, attachments and images
+  alike. A **401** means the token is expired or revoked; a **403** means `CONFLUENCE_EMAIL` is
+  missing. See `paytable-pipeline`.
 - **Art:** locate per game inside the bundle — naming conventions VARY per game (some use
   `S_Symbol_<NAME>`/`HP_*`, others use letter-coded names like `S_PicA`/`S_CardK`). Never assume one
   convention; open candidate files and visually confirm before mapping. Never a personal Desktop folder.
@@ -264,7 +266,7 @@ Each phase writes an artifact under `_verstka/` so work survives context compact
 
 ### Phase 1 — Extract (delegates to `paytable-pipeline`)
 Produces `<Game> Paytable.md`, `… Clean.md`, `… Symbols.md`, `Paytable Images/PageN.jpg`. Uses the
-browser cookie session (not PAT). A "Pay Table Pages section not found" / tiny-HTML-length result on
+API token. A "Pay Table Pages section not found" / tiny-HTML-length result on
 the first try can be a transient Confluence render timeout on a large page — retry once before
 treating it as a real failure.
 **`Symbols.md` is exhaustive and pre-normalised** — the sweep covers `DARK_*`, `2_*`, `X&Y` combos

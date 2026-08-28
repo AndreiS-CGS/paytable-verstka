@@ -6,9 +6,8 @@ too late to switch interpreters.
 
 Why this exists rather than a line in SKILL.md telling the agent which python to use: prose is
 not enforcement. The agent has been told `python3 <script>` for months, and on a machine where
-`python3` is missing a dependency the failure is silent — `paytable_from_confluence.py` catches
-`ImportError` on browser_cookie3 and quietly disables cookie auth, which is the documented
-*primary* auth path.
+`python3` is missing a dependency the failure is silent, or worse: an optional-looking
+`try/except ImportError` disables a whole code path without a word.
 
 Duplicated verbatim in each skill's scripts/ directory on purpose: every skill must stay
 independently installable, so none of them may import from another.
@@ -33,7 +32,7 @@ def _config_path():
 def config(name, default=None):
     """Read a setting: real environment first, then the config file.
 
-    Env-first keeps `CHROME_PROFILE=... python3 script.py` working for one-off debugging, and
+    Env-first keeps `CONFLUENCE_EMAIL=... python3 script.py` working for one-off debugging, and
     lets Claude Code's injected `env` win over a stale config file.
     """
     v = os.environ.get(name)

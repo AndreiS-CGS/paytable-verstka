@@ -20,9 +20,9 @@ flags.
 2. Open **PlayStudios > Slot Tools > Paytable Tool** and press **Re-check all**.
 
 The Setup tab checks the package, the Python environment, the skills, Confluence access and
-unityMCP, and fixes what can be fixed from a button. What it cannot do — logging Chrome into
-Confluence, `gh auth login`, granting repo access, the macOS Keychain prompt — it lists separately
-so a permanently amber row does not read as a bug.
+unityMCP, and fixes what can be fixed from a button. What it cannot do — creating your Atlassian
+API token, `gh auth login`, granting repo access — it lists separately so a permanently amber row
+does not read as a bug.
 
 Every row shows the exact command it ran and the full output. Statuses are four-valued rather than
 pass/fail: a probe that timed out or could not find its tool reports **Blocked**, never Ok. That
@@ -60,7 +60,7 @@ library/                      the UPM package, com.cgs.paytablelibrary
     ├── cgs-atlas-builder/    packs symbol PNGs into an atlas + TMP Sprite Asset
     └── paytable-verstka/     orchestrates both, then assembles the prefab
 
-requirements.txt              the five Python packages, installed into ~/.venvs/paytable-tools
+requirements.txt              the four Python packages, installed into ~/.venvs/paytable-tools
 ```
 
 `Skills~` is named for the tilde: Unity ignores any folder ending in `~`, so the skills ship with

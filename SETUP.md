@@ -12,7 +12,7 @@ what's explicitly marked "ASK". Verify each step actually worked before moving t
 
 **Never report a step as done on an exit code alone where a real check is listed.** Every stale
 failure this document has caused came from exactly that: pip reporting success while the package
-resolved from somewhere else, a cookie file existing while nobody was logged in, a skill installed
+resolved from somewhere else, a token file sitting on disk three months after it expired, a skill installed
 but silently ignored because its frontmatter was malformed.
 
 ## 0. What you're setting up
@@ -104,9 +104,9 @@ python3 -m venv ~/.venvs/paytable-tools
 ~/.venvs/paytable-tools/bin/python -m pip install --only-binary=:all: -r requirements.txt
 ```
 
-All five packages are required: `requests`, `browser-cookie3`, `pillow`, `numpy`, `scipy`. An
-earlier version of this document listed only two of them, which is why installs kept ending up
-half-working.
+All four packages are required: `requests`, `pillow`, `numpy`, `scipy`. An earlier version of this
+document listed only two, which is why installs kept ending up half-working. (`browser-cookie3`
+was a fifth until cookie auth was removed.)
 
 `--only-binary=:all:` matters: without a wheel, pip attempts a source build that runs for minutes
 and fails with a wall of compiler output. With it you get an immediate, readable "no matching
@@ -121,25 +121,27 @@ unversioned trap — remove it if it exists.
 
 Verify by importing, not by trusting pip's exit code:
 ```bash
-~/.venvs/paytable-tools/bin/python -c "import requests, browser_cookie3, PIL, numpy, scipy; print('ok')"
+~/.venvs/paytable-tools/bin/python -c "import requests, PIL, numpy, scipy; print('ok')"
 ```
 
 ## 7. Confluence access (for paytable-pipeline)
-- **ASK** which Chrome profile on this machine is logged into `playstudios.atlassian.net` (their own
-  CGS Confluence account — not yours, not a shared one).
-- Set that as `CHROME_PROFILE="Profile N"` (matching Chrome's own profile directory name) or
-  `CHROME_COOKIE_FILE=/full/path/to/that/profile/Cookies`. Persist it in
-  `~/.config/paytable-tools/config.json` (`%APPDATA%\paytable-tools\config.json` on Windows),
-  which the scripts read directly — not in `~/.zshrc`, which is shell-specific, does nothing on
-  Windows, and is invisible to a GUI-launched Unity.
-- **If `~/.confluence_pat` exists, `CONFLUENCE_EMAIL` must be set too.** Basic auth needs both. With
-  the token present and the email missing the script now warns and falls back to cookies; it used
-  to send the header anyway and get `403 Current user not permitted to use Confluence`, which looks
-  like a permissions problem and is not.
-- Verify by actually running an extraction against a real GDD URL once everything else is set up —
-  don't declare this step done on config alone. On macOS the first cookie read triggers a Keychain
-  prompt; tell the human it is coming and that they should choose Always Allow, because a denied
-  prompt surfaces later only as an exception class name with no message.
+- **ASK** the human to create an Atlassian API token: the plain **Create API token** button at
+  `id.atlassian.com/manage-profile/security/api-tokens`, **not** "Create API token with scopes".
+  Scoped tokens are addressed through `api.atlassian.com/ex/confluence/<cloudId>/...`; this
+  pipeline talks to the site URL directly. Tell them to pick the longest expiry offered.
+- Store it at `~/.confluence_pat`, mode 600, and set `CONFLUENCE_EMAIL` to the account that
+  created it. Both go in through the Unity window, or by hand into `~/.confluence_pat` and
+  `~/.config/paytable-tools/config.json` — never `~/.zshrc`, which is shell-specific, does nothing
+  on Windows, and is invisible to a GUI-launched Unity.
+- **Verify against the server, not the filesystem.** `GET /wiki/rest/api/user/current` with the
+  Basic header must return 200 and the expected account. The previous token here sat on disk for
+  three months after expiring, and every check that looked only at the file called it configured.
+  `env_doctor.py --kv` reports this as `confluence.token_state`.
+- Both settings are mandatory: **401** means the pair was read and rejected (expired, revoked, or
+  a different account); **403** means it was not accepted as credentials at all, which is what
+  `CONFLUENCE_EMAIL` being empty produces.
+- There is no browser step. Cookie auth was removed once a token was measured to fetch page text,
+  the attachment list and the images — the image download redirects to a pre-signed media URL.
 
 ## 8. Final smoke test
 Once steps 1-7 are done, confirm the whole chain works end to end:

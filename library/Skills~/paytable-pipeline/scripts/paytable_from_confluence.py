@@ -3,8 +3,12 @@
 Paytable Create Pipeline — Confluence API version
 No browser, no SingleFile. Works directly via Atlassian REST API.
 
-Auth: Chrome cookie session (primary). Optional PAT at ~/.confluence_pat, which requires
-      CONFLUENCE_EMAIL to be set alongside it — see the skill's Prerequisites section.
+Auth: an Atlassian API token at ~/.confluence_pat plus CONFLUENCE_EMAIL. Both are required.
+
+      Browser cookies used to be the primary path. They are gone: a token fetches page text, the
+      attachment list AND the images (measured — the image download 302s to a signed media URL
+      that needs no credential of its own), so cookies bought nothing and cost a macOS Keychain
+      prompt, a native dependency, and support for exactly one browser.
 
 Usage:
   python3 paytable_from_confluence.py <confluence_url> <GameName> <output_dir>
@@ -26,18 +30,6 @@ _bootstrap.require('requests')
 import requests
 from base64 import b64encode
 
-# A vendored copy may exist under ~/.local/lib/python-extra. APPENDED, never inserted at 0:
-# ahead of the venv it shadows the properly installed package, so an import check passes while
-# the script actually loads a different, unversioned copy.
-sys.path.append(os.path.expanduser('~/.local/lib/python-extra'))
-try:
-    import browser_cookie3
-    COOKIES_AVAILABLE = True
-except ImportError:
-    COOKIES_AVAILABLE = False
-    print(f"  Warning: browser_cookie3 is not importable under {sys.executable} — "
-          f"cookie auth is DISABLED and only a PAT can work.", file=sys.stderr)
-
 
 # ── Config ──────────────────────────────────────────────────────────────────
 # Read through _bootstrap.config (real env first, then the config file the Unity Setup tab
@@ -50,58 +42,6 @@ def _email():
 def _token_file():
     return os.path.expanduser(_bootstrap.config('CONFLUENCE_PAT_FILE', '~/.confluence_pat'))
 
-
-def _chrome_base_dirs():
-    """Chrome user-data dirs per platform — macOS, Windows and Linux."""
-    home = os.path.expanduser('~')
-    if sys.platform == 'darwin':
-        return [os.path.join(home, 'Library', 'Application Support', 'Google', 'Chrome')]
-    if os.name == 'nt':
-        local = os.environ.get('LOCALAPPDATA') or os.path.join(home, 'AppData', 'Local')
-        return [os.path.join(local, 'Google', 'Chrome', 'User Data')]
-    return [  # Linux / BSD
-        os.path.join(home, '.config', 'google-chrome'),
-        os.path.join(home, '.config', 'chromium'),
-    ]
-
-
-def _natural_key(name):
-    """Sort 'Profile 3' before 'Profile 10'."""
-    return [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', name)]
-
-
-def _candidate_cookie_files():
-    """Every Chrome Cookies DB on this machine, honouring explicit env overrides.
-
-    Deliberately returns *candidates* rather than one guess: which browser
-    profile is logged into Confluence differs per person, so the caller picks by
-    testing for real cookies on the target domain instead of hardcoding a
-    profile name (that made the tool machine-specific).
-    """
-    explicit = _bootstrap.config('CHROME_COOKIE_FILE')
-    if explicit:
-        return [os.path.expanduser(explicit)]
-
-    wanted = _bootstrap.config('CHROME_PROFILE')
-    found = []
-    for base in _chrome_base_dirs():
-        if not os.path.isdir(base):
-            continue
-        try:
-            # Natural sort: plain sorted() puts 'Profile 10' before 'Profile 3', so the first
-            # profile tried is not the one a human would expect.
-            dirs = sorted(os.listdir(base), key=_natural_key)
-        except OSError:
-            continue
-        profiles = [wanted] if wanted else \
-            ['Default'] + [p for p in dirs if p.startswith('Profile ')]
-        for d in profiles:
-            # Chrome moved cookies under Network/ in newer versions.
-            for parts in (('Network', 'Cookies'), ('Cookies',)):
-                cand = os.path.join(base, d, *parts)
-                if os.path.exists(cand) and cand not in found:
-                    found.append(cand)
-    return found
 
 SECTION_END_MARKER = 'Task types for Live Ops'
 
@@ -131,36 +71,35 @@ EDITORIAL_PATTERNS = [
     r'^\*{0,2}Comment:.*$',
 ]
 
-# ── Auth ────────────────────────────────────────────────────────────────────
 
 def get_headers():
-    """Basic-auth headers when a PAT *and* an identity are configured; cookie-only otherwise.
+    """Basic-auth headers from the API token. Required — there is no other auth path.
 
-    Cookie auth is the primary path, so a missing PAT file must not be fatal — anyone who only
-    logs into Confluence in Chrome should still work.
-
-    The email check is not a nicety. Building the header without it yields
-    `Basic base64(":<token>")`, which Confluence rejects with
-    `403 Current user not permitted to use Confluence` and no indication of why — a PAT file
-    with no CONFLUENCE_EMAIL beside it used to look exactly like a permissions problem.
+    The token and the email must both be present: with a token and no identity the header comes
+    out as Basic base64(":token"), which Confluence answers with
+    "403 Current user not permitted to use Confluence" — indistinguishable from a real permissions
+    problem, and the reason the token path was believed to be flaky for months.
     """
-    headers = {'Accept': 'application/json'}
+    token_file = _token_file()
     try:
-        with open(_token_file()) as f:
+        with open(token_file) as f:
             token = f.read().strip()
     except OSError:
-        return headers
+        sys.exit(
+            f"\nNo Confluence API token at {token_file}.\n"
+            f"  Create one (the plain kind, not \"with scopes\") at\n"
+            f"  https://id.atlassian.com/manage-profile/security/api-tokens\n"
+            f"  then paste it into the Unity window: PlayStudios > Slot Tools > Paytable Tool.\n")
     if not token:
-        return headers
+        sys.exit(f"\n{token_file} is empty.\n")
     email = _email()
     if not email:
-        print(f"  Warning: {_token_file()} exists but CONFLUENCE_EMAIL is not set. Basic auth "
-              f"needs both, so it is being skipped entirely — falling back to cookies.",
-              file=sys.stderr)
-        return headers
+        sys.exit(
+            "\nCONFLUENCE_EMAIL is not set, and Basic auth needs it alongside the token.\n"
+            "  Set it in the Unity window, or in ~/.config/paytable-tools/config.json.\n")
     creds = b64encode(f'{email}:{token}'.encode()).decode()
-    headers['Authorization'] = f'Basic {creds}'
-    return headers
+    return {'Accept': 'application/json', 'Authorization': f'Basic {creds}'}
+
 
 # ── URL parsing ─────────────────────────────────────────────────────────────
 
@@ -179,7 +118,6 @@ def fetch_page_html(base_url, page_id, headers):
         f'{base_url}/wiki/rest/api/content/{page_id}',
         params={'expand': 'body.export_view'},
         headers=headers,
-        cookies=get_chrome_cookies(base_url),
         timeout=30,
     )
     resp.raise_for_status()
@@ -248,7 +186,6 @@ def fetch_paytable_attachments(base_url, page_id, headers, section_html):
             f'{base_url}/wiki/rest/api/content/{page_id}/child/attachment',
             params={'limit': 100, 'start': start},
             headers=headers,
-            cookies=get_chrome_cookies(base_url),
             timeout=30,
         )
         resp.raise_for_status()
@@ -275,61 +212,14 @@ def fetch_paytable_attachments(base_url, page_id, headers, section_html):
     return result
 
 
-_COOKIE_CACHE = {}
-
-
-def get_chrome_cookies(base_url):
-    """Session cookies for the Confluence domain, from whichever profile has them.
-
-    Picks the first Chrome profile that actually yields cookies for this domain,
-    so it works regardless of which profile the user is signed in with, on any OS.
-    """
-    if not COOKIES_AVAILABLE:
-        return None
-    from urllib.parse import urlparse
-    domain = urlparse(base_url).netloc
-    if domain in _COOKIE_CACHE:
-        return _COOKIE_CACHE[domain]
-
-    candidates = _candidate_cookie_files()
-    chosen, errors = None, []
-    for path in candidates:
-        try:
-            jar = browser_cookie3.chrome(cookie_file=path, domain_name=domain)
-        except Exception as e:
-            errors.append(f'{os.path.basename(os.path.dirname(path))}: {e.__class__.__name__}')
-            continue
-        if jar and len(jar):
-            chosen = jar
-            print(f"  Auth: Chrome cookies from {path} ({len(jar)} for {domain})")
-            break
-
-    if chosen is None:
-        try:                          # last resort: browser_cookie3's own detection
-            chosen = browser_cookie3.chrome(domain_name=domain) or None
-        except Exception as e:
-            errors.append(f'auto-detect: {e.__class__.__name__}')
-        if chosen is None:
-            print(f"  Warning: no Chrome cookies for {domain} "
-                  f"(checked {len(candidates)} profile(s))"
-                  + (f' — {"; ".join(errors)}' if errors else ''))
-            print("  Hint: log into Confluence in Chrome, or set "
-                  "CHROME_PROFILE / CHROME_COOKIE_FILE.")
-
-    _COOKIE_CACHE[domain] = chosen
-    return chosen
-
-
 def download_images(attachments, output_dir, headers, base_url):
     """Download paytable images to <output_dir>/Paytable Images/.
-    Uses Chrome session cookies (more reliable than API token for downloads)."""
+    The header used to be omitted here, on the assumption that only cookies work for Atlassian
+    Cloud attachments. Measured otherwise: the download 302-redirects to api.media.atlassian.com,
+    requests drops Authorization across the host change, and the redirect target is already a
+    signed URL — so it succeeds on the token alone."""
     images_dir = os.path.join(output_dir, 'Paytable Images')
     os.makedirs(images_dir, exist_ok=True)
-
-    # Try Chrome cookies first (required for Atlassian Cloud attachment downloads)
-    cookies = get_chrome_cookies(base_url)
-    if not cookies:
-        print("  Warning: browser_cookie3 not available — image downloads may fail")
 
     saved = 0
     failed = []
@@ -337,7 +227,7 @@ def download_images(attachments, output_dir, headers, base_url):
         try:
             resp = requests.get(
                 att['url'],
-                cookies=cookies,
+                headers=headers,
                 allow_redirects=True,
                 timeout=60,
             )
@@ -358,7 +248,8 @@ def download_images(attachments, output_dir, headers, base_url):
         print(f"  Retrying {len(failed)} failed images...")
         for att in [a for a in attachments if a['save_as'] in failed]:
             try:
-                resp = requests.get(att['url'], cookies=cookies, allow_redirects=True, timeout=90)
+                resp = requests.get(att['url'], headers=headers,
+                                    allow_redirects=True, timeout=90)
                 if resp.status_code == 200 and 'image' in resp.headers.get('content-type', ''):
                     path = os.path.join(images_dir, att['save_as'])
                     with open(path, 'wb') as f:

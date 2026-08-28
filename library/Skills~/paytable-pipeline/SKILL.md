@@ -78,33 +78,39 @@ If there were warnings (missing images, section not found), surface them clearly
 
 ## Prerequisites & setup (shareable — each colleague configures their own)
 
-Auth uses the **browser cookie session** as the primary path — the Atlassian PAT/API token often
-returns `403 "Current user not permitted to use Confluence"`, while a logged-in Chrome session works
-for both page HTML and attachment downloads. Key requirement: **be logged into the CGS Confluence in a
-Chrome profile.**
+Auth is an **Atlassian API token**, and nothing else. Two settings are required:
 
-One-time setup per machine (no code edits — everything is env-overridable):
-1. Install the Python dependencies into the shared venv — `requests`, `browser-cookie3`,
-   `pillow`, `numpy`, `scipy` (see `requirements.txt` at the repo root). The Unity window does
-   this: **PlayStudios > Slot Tools > Paytable Tool > Setup**.
+1. `CONFLUENCE_EMAIL` — the account the token was issued under.
+2. The token itself at `~/.confluence_pat` (override with `CONFLUENCE_PAT_FILE`), mode 600.
+
+Both go in through the Unity window (**PlayStudios > Slot Tools > Paytable Tool > Setup**), which
+also verifies the token against `/rest/api/user/current` and shows which account it belongs to.
+By hand they live in `~/.config/paytable-tools/config.json` and `~/.confluence_pat`.
+
+Create the token with the plain **Create API token** button at
+`id.atlassian.com/manage-profile/security/api-tokens` — *not* "Create API token with scopes".
+Scoped tokens are addressed through `api.atlassian.com/ex/confluence/<cloudId>/...`, while this
+script talks to the site URL directly.
+
+> **Tokens expire.** Atlassian now puts an expiry date on them, and an expired token is
+> indistinguishable from a working one by looking at the file. A wrong or expired pair answers
+> **401**; a malformed one (token with no email, so the header becomes `base64(":token")`) answers
+> **403 Current user not permitted to use Confluence**, which reads like a permissions problem and
+> is not. The window's live check is what tells these apart.
+
+Browser cookie auth used to be the primary path and has been removed. Measured: a token fetches
+the page text, the attachment list *and* the images — the image download 302-redirects to a
+pre-signed `api.media.atlassian.com` URL that carries its own authorisation. Cookies therefore
+bought nothing, while costing a macOS Keychain prompt, the native `browser_cookie3` dependency,
+and support for exactly one browser.
+
+One-time setup per machine:
+1. Install the Python dependencies into the shared venv — `requests`, `pillow`, `numpy`, `scipy`
+   (see `requirements.txt` at the repo root). The Unity window does this.
    Do NOT use `pip install --target ~/.local/lib/python-extra`: that directory is not versioned
    and used to be placed ahead of the venv on `sys.path`, so it shadowed the properly installed
    packages while every check still reported success.
-2. Be logged into `playstudios.atlassian.net` in some Chrome profile.
-3. Optionally pin a profile via env — normally not needed:
-   - `CHROME_PROFILE="<profile name>"`, OR `CHROME_COOKIE_FILE=/full/path/to/Cookies`.
-     With neither set, the script finds the right profile by itself (see below).
-   - Optional PAT auth: `CONFLUENCE_EMAIL=you@…` + token at `~/.confluence_pat` (or `CONFLUENCE_PAT_FILE`).
-   - `CONFLUENCE_EMAIL` is **required whenever `~/.confluence_pat` exists.** With the token
-     file present and the email missing, Basic auth is skipped and only cookies are used; the
-     script says so on stderr. (It used to build the header anyway and get back
-     `403 Current user not permitted to use Confluence`, which reads like a permissions problem
-     and is not.)
-
-Chrome user-data locations are resolved per platform (macOS / Windows `%LOCALAPPDATA%` / Linux
-`~/.config`), including the newer `Network/Cookies` sub-path. No profile name or personal path is
-hardcoded — with no env set, the script enumerates every profile and picks whichever one actually
-holds cookies for the Confluence domain, printing which it used.
+2. Create the API token and paste it into the window along with your email.
 
 ---
 
@@ -112,9 +118,9 @@ holds cookies for the Confluence domain, printing which it used.
 
 **"Pay Table section not found"** — the section is matched by an anchor id containing `Pay Table` / `Paytable`, which covers the common heading names. If a GDD heads the section something else entirely, the fallback takes the last occurrence of that text; check the page's heading structure.
 
-**Images failed / timeout** — Atlassian CDN occasionally times out. The script retries automatically. If images still fail, check that the configured Chrome profile (`CHROME_PROFILE`/`CHROME_COOKIE_FILE`) is logged into the CGS Confluence account.
+**Images failed / timeout** — Atlassian's media CDN occasionally times out. The script retries automatically. If images still fail, re-check the token in the Unity window: an expired token fails the page fetch first, so images failing alone usually means a genuine CDN hiccup.
 
-**`403 Current user not permitted to use Confluence`** — the PAT/API identity lacks access. Use cookie auth instead: log into Confluence in Chrome and set `CHROME_PROFILE`/`CHROME_COOKIE_FILE`.
+**`403 Current user not permitted to use Confluence`** — the header was not accepted as credentials at all, almost always because `CONFLUENCE_EMAIL` is missing so it was built as `base64(":token")`. **`401`** is different: the pair *was* read and rejected — expired, revoked, or a different account. Re-issue the token.
 
 **Wrong section extracted** — the section is found by anchor id in the body HTML, not in the ToC, so ToC links never match by accident. An unusual page structure falls through to the text fallback, which can over-capture; check the reported section length looks sane.
 
@@ -208,5 +214,5 @@ magenta fill, and counting it as content dominates the statistics.
 
 Если ни один не найден и зависимостей нет, скрипт **падает с внятным сообщением**, называя
 интерпретатор и чего в нём не хватает. Он никогда не продолжает работу молча на неполном окружении —
-раньше именно так и было: `browser_cookie3` не импортировался, cookie-авторизация тихо отключалась,
-и всё уезжало на PAT.
+раньше именно так и было: необязательный на вид `try/except ImportError` отключал целую ветку
+авторизации, и никто об этом не узнавал.
