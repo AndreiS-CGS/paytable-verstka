@@ -1,15 +1,16 @@
 {
   "name": "com.cgs.paytablelibrary",
-  "version": "0.1.0",
-  "displayName": "CGS Paytable Library",
-  "description": "Reusable shell + block prefab library for assembling Konami/GEL and MCF slot paytable dialogs (used by the paytable-verstka pipeline). Contains empty page shells (Shells/) and atomic content blocks (Blocks/) that get cloned and assembled per game — never edited in place.",
+  "version": "0.2.0",
+  "displayName": "CGS Paytable Tools",
+  "description": "Paytable tooling for Konami/GEL and MCF slots: a reusable shell + block prefab library, the three Claude Code skills that drive it (shipped under Skills~, which Unity ignores), and the Paytable Tool editor window (PlayStudios > Slot Tools) that sets up the local environment and composes a run. Blocks are cloned and assembled per game, never edited in place. Requires TextMeshPro: built into com.unity.ugui on Unity 6, a separate package before that. It is deliberately not declared as a dependency here, because pinning the pre-Unity-6 registry version would conflict with the built-in module.",
   "unity": "2021.3",
   "keywords": [
     "paytable",
     "konami",
     "gel",
     "mcf",
-    "ui"
+    "ui",
+    "tools"
   ],
   "author": {
     "name": "CGS"
