@@ -95,10 +95,22 @@ The window will not silently replace a symlink with a copy — it names the link
 `Library/PackageCache/` and is wiped on every re-resolve, so a link into it dangles and the skill
 disappears mid-project.
 
-**A `#main` git reference pins the first commit it resolved.** To pick up new commits, remove the
-entry from `Packages/packages-lock.json` *and* the matching folder under `Library/PackageCache/`,
-then call `UnityEditor.PackageManager.Client.Resolve()`. `Resolve()` alone only re-reads the
-existing lock.
+**A git reference pins the commit it first resolved,** so pushing changes nothing for Unity until
+the pin and the cached copy are both removed. `Client.Resolve()` alone only re-reads the lock.
+`tools/package.sh` does the whole dance:
+
+```bash
+./tools/package.sh link    <unity-project>   # dev: symlink to this clone, edits are live
+./tools/package.sh unlink  <unity-project>   # back to manifest.json
+./tools/package.sh refresh <unity-project>   # git mode: forget the pin and re-fetch
+./tools/package.sh status  <unity-project>   # which mode, which commit, which cache folder
+```
+
+Pass the project once via `$PAYTABLE_UNITY_PROJECT` and you can drop the argument. Unity re-resolves
+on **window focus**, not on request, so click into it afterwards.
+
+Use `link` while working on the package. Waiting for a fix you pushed minutes ago, and watching the
+old bug fire again because Unity still holds the previous commit, is a bad way to spend an afternoon.
 
 **New files under `library/` need a `.meta`.** A file that never passed through a writable Unity
 `Assets/` folder has none, and Unity silently ignores un-metaed assets inside a git-resolved
