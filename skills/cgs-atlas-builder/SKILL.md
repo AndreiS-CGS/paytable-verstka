@@ -1,6 +1,18 @@
+---
+name: cgs-atlas-builder
+description: >
+  Packs a folder of prepared symbol PNGs into a Sprite Atlas plus a TMP Sprite Asset for a Unity
+  paytable (CGS/Konami), and derives the inline-sprite tag values that go with it. Use whenever the
+  user wants symbol art turned into a sprite font — "собери атлас", "запакуй спрайты", "нужен TMP
+  sprite asset", "build the sprite atlas", "спрайты не рендерятся в тексте" — or when inline
+  <sprite> tags come out the wrong size or off-centre. Produces the atlas PNG, its coordinate JSON,
+  the TMP Sprite Asset with correct glyph metrics, and sliced sub-sprites usable as plain Images.
+  Orchestrated by `paytable-verstka`; invoke directly when only the atlas is needed.
+---
+
 # cgs-atlas-builder
 
-Собирает Sprite Atlas и TMP Sprite Asset из вручную подготовленной папки с PNG-спрайтами для паytable в Unity (CGS/Konami).
+Собирает Sprite Atlas и TMP Sprite Asset из вручную подготовленной папки с PNG-спрайтами для пейтейбл в Unity (CGS/Konami).
 
 **Часть репозитория `paytable-verstka`** — Python-скрипты лежат в `scripts/` рядом с этим файлом,
 Unity-side шаги делегированы в C#-утилиту `CGS.PaytableLibrary.PaytableAtlasBuilder`, которая живёт
@@ -9,8 +21,8 @@ Unity-side шаги делегированы в C#-утилиту `CGS.PaytableL
 
 ## Когда использовать
 
-Когда юзер хочет запаковать собранный арт символов в TMP Sprite Asset для паytable.
-Триггеры: "запакуй атлас", "собери спрайт ассет", "cgs atlas", "паytable атлас".
+Когда юзер хочет запаковать собранный арт символов в TMP Sprite Asset для пейтейбл.
+Триггеры: "запакуй атлас", "собери спрайт ассет", "cgs atlas", "пейтейбл атлас".
 
 ## Контекст проекта (портируемо — без хардкода путей)
 
@@ -241,7 +253,7 @@ voffset_em = font.capLine × font.faceInfo.scale / (2 × font.faceInfo.pointSize
 Отношение к высоте прописной: `spriteHeight / capH = P / (100 × capLine_em)`.
 
 > **Грабля с `orthoMult`.** Множитель 0.1 — это не константа TMP, а `m_isOrthographic ? 1 : 0.1`.
-> Body-тексты паytable — `TextMeshPro` (3D) с `m_isOrthographic: 0`, поэтому 0.1 и
+> Body-тексты пейтейбл — `TextMeshPro` (3D) с `m_isOrthographic: 0`, поэтому 0.1 и
 > `faceInfo.scale = 10`. Если текст сделать ортографическим или перевести на `TextMeshProUGUI`,
 > множитель станет 1 и **все спрайты вырастут в 10 раз** — тогда `faceInfo.scale` должен быть 1.
 > Это единственное место, где конфигурация зависит от типа текстового компонента.
