@@ -63,8 +63,13 @@ def main():
     parser.add_argument("--atlas-size", type=int, default=1024,
                         help="Atlas size, or the MAXIMUM size when --pow2 is used (default 1024)")
     parser.add_argument("--pad", type=int, default=4)
-    parser.add_argument("--pow2", action="store_true",
-                        help="Shrink the atlas to the smallest power-of-two that fits the content")
+    # On by default. Without it the atlas is a square of --atlas-size regardless of content, and
+    # nothing says so: one shipped atlas came out 2048x2048 holding 1052px of rows, wasting half
+    # the texture with no warning anywhere.
+    parser.add_argument("--pow2", action="store_true", default=True,
+                        help="Shrink the atlas to the smallest power-of-two that fits (default)")
+    parser.add_argument("--no-pow2", dest="pow2", action="store_false",
+                        help="Force a square atlas of exactly --atlas-size")
     args = parser.parse_args()
 
     limit = args.atlas_size
@@ -82,20 +87,34 @@ def main():
         raise SystemExit(f"No PNGs found in {args.processed_src}")
 
     def layout(width):
-        """Row-pack into `width`; returns (placements, used_w, used_h). Top-down Y —
-        the flip to Unity's bottom-up Y needs the FINAL atlas height, which isn't
-        known until the size is settled."""
-        placed, x, y, row_h, used_w = [], 0, 0, 0, 0
-        for sp in sprites:
-            if x + sp["w"] + pad > width:
-                x = 0
-                y += row_h + pad
-                row_h = 0
-            placed.append((sp, x, y))
-            row_h = max(row_h, sp["h"])
-            x += sp["w"] + pad
-            used_w = max(used_w, x - pad)
-        return placed, used_w, y + row_h
+        """Shelf-pack into `width`; returns (placements, used_w, used_h). Top-down Y —
+        the flip to Unity's bottom-up Y needs the FINAL atlas height, which isn't known
+        until the size is settled.
+
+        First-fit decreasing: widest first, and each sprite goes into the first shelf it
+        still fits, not only the one being filled. With every sprite the same height (the
+        font standard) that reaches the theoretical minimum shelf count in practice.
+
+        Packing in filename order instead used to close a shelf the moment the next sprite
+        did not fit, so a 1423px banner arriving with 500px left wasted the rest of the row
+        — one real atlas had two shelves holding 548 and 840 pixels of a 2011px width, and
+        needed 8 shelves where 7 suffice."""
+        order = sorted(sprites, key=lambda s: (-s["w"], s["name"]))
+        shelves = []          # [{"y", "x", "h"}]
+        placed = []
+        for sp in order:
+            for sh in shelves:
+                if sh["x"] + sp["w"] + pad <= width and sp["h"] <= sh["h"]:
+                    placed.append((sp, sh["x"], sh["y"]))
+                    sh["x"] += sp["w"] + pad
+                    break
+            else:
+                y = (shelves[-1]["y"] + shelves[-1]["h"] + pad) if shelves else 0
+                shelves.append({"y": y, "x": sp["w"] + pad, "h": sp["h"]})
+                placed.append((sp, 0, y))
+        used_w = max((sh["x"] - pad) for sh in shelves) if shelves else 0
+        used_h = (shelves[-1]["y"] + shelves[-1]["h"]) if shelves else 0
+        return placed, used_w, used_h
 
     if args.pow2:
         # SEARCH for the smallest square that fits, don't just shrink a max-width
