@@ -462,12 +462,19 @@ def make_clean(text):
 def sprite_name(token):
     """GDD token -> TMP sprite name.
 
-    These two rules are what makes GDD tokens line up with the names in a built
-    atlas — sprite names there are already underscore-normalised.
-        ' ' -> '_'      [DARK ACE]  -> DARK_ACE,  [MINI BONUS] -> MINI_BONUS
-        '+' -> 'PLUS'   [+1 SPIN]   -> PLUS1_SPIN
+    THIS RULE IS SHARED WITH cgs-atlas-builder's pack_atlas.py, which applies it to PNG filenames.
+    Both ends must normalise identically or the text asks for a name the atlas does not contain,
+    and TMP silently renders a fallback glyph instead — every unresolved symbol comes out as the
+    same wrong picture, with no error anywhere. Change one, change the other.
+
+        ' ' -> '_'      [DARK ACE]        -> DARK_ACE
+        '&' -> '_'      [DIAMOND&ACE]     -> DIAMOND_ACE
+        '+' -> 'PLUS'   [+1 SPIN]         -> PLUS1_SPIN
+
+    `&` was missing here until a run produced 27 unresolvable names: the GDD writes combined
+    symbols as DIAMOND&ACE while the art is filed as DIAMOND_ACE.
     """
-    return re.sub(r'\s+', '_', token.strip()).replace('+', 'PLUS')
+    return re.sub(r'[\s&]+', '_', token.strip()).replace('+', 'PLUS')
 
 
 def canonicalise_tokens(text):

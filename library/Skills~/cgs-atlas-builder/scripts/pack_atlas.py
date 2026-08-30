@@ -17,6 +17,8 @@ and is not worth the complexity.
 `--pow2` shrinks the finished atlas to the smallest power-of-two that still fits the content, so
 you can pass a generous `--atlas-size` as a ceiling instead of guessing the right one up front.
 """
+import re
+
 import argparse
 import json
 import os
@@ -25,6 +27,25 @@ _bootstrap.require('PIL')
 
 from PIL import Image
 
+
+
+def sprite_name(stem):
+    """PNG filename stem -> TMP sprite name.
+
+    THIS RULE IS SHARED WITH paytable-pipeline's sprite_name(), which applies it to GDD tokens.
+    Both ends must normalise identically: if they drift, the rules text asks for a name the atlas
+    does not contain and TMP quietly substitutes a fallback glyph — no error, just the same wrong
+    picture wherever a symbol should be. Change one, change the other.
+
+        ' ' -> '_'      DARK ACE.png      -> DARK_ACE
+        '&' -> '_'      DIAMOND&ACE.png   -> DIAMOND_ACE
+        '+' -> 'PLUS'   +1 SPIN.png       -> PLUS1_SPIN
+
+    Filenames used to be taken as-is (just uppercased), so whatever an artist happened to type
+    became the sprite name. That is how one atlas ended up holding both DIAMOND_SIGNBOARD and
+    2_WILD&SIGNBOARD.
+    """
+    return re.sub(r'[\s&]+', '_', stem.strip()).replace('+', 'PLUS').upper()
 
 def next_pow2(n):
     p = 1
@@ -54,7 +75,7 @@ def main():
         if not f.lower().endswith(".png"):
             continue
         img = Image.open(os.path.join(args.processed_src, f)).convert("RGBA")
-        sprites.append({"name": os.path.splitext(f)[0].upper(), "img": img,
+        sprites.append({"name": sprite_name(os.path.splitext(f)[0]), "img": img,
                         "w": img.width, "h": img.height})
 
     if not sprites:
