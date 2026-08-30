@@ -422,9 +422,22 @@ Write the mapping to `_verstka/block_mapping.md`.
      is taken from the reference screenshot of THIS game** (never hardcoded yellow) — when the Title
      combines 2+ feature names, color each piece with its own established `<color>` tag, connecting
      words neutral/white.
-4. **Page positioning in the slider:** move the page's ROOT object (`transform.localPosition.x = slot
-   × CARD_OFFSET`, slot 0 → x=0) — never touch `PageParent`'s own local position inside the page; it
-   stays identical regardless of slot.
+4. **Page positioning in the slider:** move the page's ROOT object
+   (`transform.localPosition.x = slot × offset`, slot 0 → x=0) — never touch `PageParent`'s own local
+   position inside the page; it stays identical regardless of slot.
+
+   **Read `offset` off the shell you instantiated. Never pick a number.** It is a serialized field on
+   the dialog's root component, spelled differently per system:
+
+   | System | Root component | Field |
+   |---|---|---|
+   | GEL | `PlayStudios.GEL.UI.SliderDialog` | `cardOffset` |
+   | MCF | `KonamiPortraitPaytable` / `KonamiPaytable` | `CARD_OFFSET` |
+
+   Both ship at 2500 today, but read the value rather than assuming it. This has already gone wrong
+   once: a run on a GEL game looked for `CARD_OFFSET` — the MCF spelling — found no such field, chose
+   1750, and laid 46 pages out 1750 apart while the component still said 2500. Nothing errored. Every
+   page rendered correctly on its own; they simply did not line up when swiped.
 5. **QA render inline** after each page (see Phase 7 for the technical render setup) — compare to the
    reference: full title, every symbol resolved (not literal `<sprite…>` text), numbers match
    `win_tables.yaml`, nothing clipped.
@@ -438,8 +451,14 @@ Write the mapping to `_verstka/block_mapping.md`.
 ### Phase 6 — Finalize
 1. Order pages by slider slot (root `localPosition.x`, per 5.4). Rename page GameObjects `Page_1..Page_N`.
 2. Set `Page X / N` labels with the final N.
-3. Register the slider on the dialog root: `cards[]` = the pages in order, `CARD_OFFSET` — drives
-   paging AND the indicator dots.
+3. Register the slider on the dialog root: `cards[]` = the pages in order. Leave the offset field
+   (`cardOffset` on GEL, `CARD_OFFSET` on MCF) at whatever the shell already carries — it drives
+   paging AND the indicator dots, and the page positions in 5.4 were derived from it.
+
+   **Then verify the geometry, because nothing else does.** For every page `i`, assert
+   `root.localPosition.x == i × offset`, and that `offset` still matches the field on the component.
+   The per-page render QA cannot catch a mismatch: each page looks perfect alone, and only swiping
+   shows they are spaced wrongly.
 4. Verify sprite hashes (`GetSpriteIndexFromName ≥ 0`). Full-pass QA: render every page vs the GDD set.
 5. **New final step:** move the whole new prefab's root AND every child object, recursively, onto the
    **"Dialog"** layer.

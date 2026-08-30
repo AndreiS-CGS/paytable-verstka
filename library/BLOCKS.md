@@ -10,9 +10,15 @@ Values below are read off the actual prefabs, not a spec. If you change a prefab
 Root component: `PlayStudios.GEL.UI.SliderDialog`. `cards: []` (empty — fill on assembly). Page
 container path: `Body/Cards/anchor/ui`.
 
+**Page spacing comes from `cardOffset` on that component (2500).** Page `i` sits at
+`localPosition.x = i × cardOffset`. Read the field; never hardcode the number — MCF spells the same
+field `CARD_OFFSET`, and that difference is exactly how one run ended up inventing 1750 for a GEL
+game.
+
 ## Shells/PaytableDialog_MCF.prefab
 Root component: `KonamiPortraitPaytable` (`Assets/MCF/Scripts/Dialog/KonamiPortraitPaytable.cs`).
-`cards: []` (empty — fill on assembly).
+`cards: []` (empty — fill on assembly). Page spacing field is `CARD_OFFSET` (2500) — note the
+different spelling from GEL's `cardOffset`.
 
 ## Blocks/Page_1.prefab — base page template
 ```
