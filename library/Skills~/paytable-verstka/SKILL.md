@@ -441,6 +441,21 @@ Write the mapping to `_verstka/block_mapping.md`.
 5. **QA render inline** after each page (see Phase 7 for the technical render setup) — compare to the
    reference: full title, every symbol resolved (not literal `<sprite…>` text), numbers match
    `win_tables.yaml`, nothing clipped.
+
+   **A wrong sprite name does not show up as literal text — it shows up as the wrong picture.** TMP
+   substitutes a fallback glyph for a name it cannot find, silently and with nothing in the console,
+   so the page looks populated and only a reader who knows the symbols can tell. One run rendered the
+   same fallback icon thirteen times on a single page this way. Eyeballing cannot be the check, so
+   compare the two sets mechanically before trusting any render:
+
+   ```
+   names used in text  =  every <sprite name="X"> across all page TextBlocks
+   names available     =  spriteCharacterTable of the game's TMP Sprite Asset
+   used - available must be EMPTY
+   ```
+
+   One direction only: the atlas legitimately holds sprites no rules text mentions (grid symbols come
+   from the Pay Grid), so `available - used` being non-empty is normal.
    **Check the inline sprites specifically**, since they are the easiest thing to get silently wrong:
    are they roughly 3.2× the height of a capital letter (about 1.4× for jackpot badges), and is the
    text sitting at their vertical middle rather than at their top or bottom edge? A sprite the same

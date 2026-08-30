@@ -158,7 +158,14 @@ name through it, so `Symbols.md` can be handed straight to `cgs-atlas-builder`:
 | rule | example |
 |---|---|
 | `' '` → `'_'` | `[DARK ACE]` → `DARK_ACE`, `[MINI BONUS]` → `MINI_BONUS` |
+| `'&'` → `'_'` | `[DIAMOND&ACE]` → `DIAMOND_ACE`, `[WILD&SIGNBOARD]` → `WILD_SIGNBOARD` |
 | `'+'` → `'PLUS'` | `[+1 SPIN]` → `PLUS1_SPIN` |
+
+**This exact rule is duplicated in `cgs-atlas-builder`'s `pack_atlas.py`, which applies it to PNG
+filenames. Change one, change the other.** The two ends had no shared rule until a run emitted 27
+names the atlas did not contain — the GDD writes combined symbols as `DIAMOND&ACE` while the art is
+filed as `DIAMOND_ACE`. Nothing errored: TMP substitutes a fallback glyph for an unknown sprite
+name, so one page rendered the same wrong icon thirteen times with an empty console.
 
 Check one way only — **every token must have a sprite, not the reverse.** An atlas legitimately
 contains sprites absent from the rules text: grid symbols (card ranks, PICs) come from the Pay Grid
