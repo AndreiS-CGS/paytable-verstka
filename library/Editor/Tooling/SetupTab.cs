@@ -142,6 +142,11 @@ namespace CGS.PaytableLibrary.Tooling
                         }
                     }
                 }
+                if (c.ExtraUI != null)
+                {
+                    EditorGUILayout.Space(2);
+                    c.ExtraUI();
+                }
                 if (!string.IsNullOrEmpty(c.Detail))
                 {
                     c.DetailExpanded = EditorGUILayout.Foldout(c.DetailExpanded, "details", true);
@@ -602,12 +607,36 @@ namespace CGS.PaytableLibrary.Tooling
             c.Detail = d.ToString();
             c.FixLabel = "Install / update";
             c.Fix = InstallSkills;
+            c.ExtraUI = DrawSkillsTargetToggle;
 
             if (badFrontmatter > 0) c.Set(CheckStatus.Wrong, $"{badFrontmatter} skill(s) with bad frontmatter", c.Detail);
             else if (absent > 0) c.Set(CheckStatus.Missing, $"{absent} of {PaytablePaths.SkillNames.Length} not installed", c.Detail);
             else if (drifted > 0) c.Set(CheckStatus.Warning, $"{drifted} differ(s) from the package", c.Detail);
             else if (linked > 0) c.Set(CheckStatus.Ok, $"{linked} symlinked (developer mode), {installed} copied", c.Detail);
             else c.Set(CheckStatus.Ok, "all up to date", c.Detail);
+        }
+
+        /// <summary>
+        /// Where skills get installed. Lives in the Skills row because that is the only thing it
+        /// affects; it used to sit in the Confluence settings box, where it read as unrelated and
+        /// forced a press of "Save settings" that wrote every other field too.
+        /// </summary>
+        void DrawSkillsTargetToggle()
+        {
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                GUILayout.Space(20);
+                var wide = GUILayout.Toggle(_installUserWide,
+                    "install user-wide (~/.claude/skills) instead of in this repo");
+                if (wide != _installUserWide)
+                {
+                    // Persisted on the spot, on its own.
+                    _installUserWide = wide;
+                    EditorPrefs.SetBool("CGS.Paytable.Setup.InstallUserWide", _installUserWide);
+                    CheckSkills();
+                }
+                GUILayout.FlexibleSpace();
+            }
         }
 
         // ── fixes ───────────────────────────────────────────────────────────
@@ -727,17 +756,6 @@ namespace CGS.PaytableLibrary.Tooling
                 {
                     if (GUILayout.Button("Save settings", GUILayout.Width(120))) SaveConfluenceSettings();
                     GUILayout.FlexibleSpace();
-                    var wide = GUILayout.Toggle(_installUserWide,
-                        "install skills user-wide (~/.claude/skills)");
-                    if (wide != _installUserWide)
-                    {
-                        // Persisted immediately and on its own. It used to ride along with
-                        // "Save settings", which meant toggling a checkbox forced a write of every
-                        // other field — including an empty email over a working one.
-                        _installUserWide = wide;
-                        EditorPrefs.SetBool("CGS.Paytable.Setup.InstallUserWide", _installUserWide);
-                        CheckSkills();
-                    }
                 }
             }
         }

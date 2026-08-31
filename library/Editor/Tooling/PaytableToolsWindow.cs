@@ -17,6 +17,8 @@ namespace CGS.PaytableLibrary.Tooling
         const string MenuPath = "PlayStudios/Slot Tools/Paytable Tool";
         const string PrefTab = "CGS.Paytable.Window.ActiveTab";
         const string PrefConsole = "CGS.Paytable.Window.ShowConsole";
+        const string PrefConsoleHeight = "CGS.Paytable.Window.ConsoleHeight";
+        const float MinConsoleHeight = 60f;
 
         enum Tab { Setup, Run }
 
@@ -28,6 +30,7 @@ namespace CGS.PaytableLibrary.Tooling
         [SerializeField] bool _showConsole = true;
         [SerializeField] Vector2 _scroll;
         [SerializeField] Vector2 _consoleScroll;
+        [SerializeField] float _consoleHeight = 150f;
 
         SetupTab _setupTab;
         RunTab _runTab;
@@ -56,6 +59,8 @@ namespace CGS.PaytableLibrary.Tooling
             _runTab = new RunTab(this);
             _tab = (Tab)EditorPrefs.GetInt(PrefTab, (int)Tab.Setup);
             _showConsole = EditorPrefs.GetBool(PrefConsole, true);
+            _consoleHeight = Mathf.Clamp(EditorPrefs.GetFloat(PrefConsoleHeight, 150f),
+                                         MinConsoleHeight, 2000f);
             _setupTab.EnsureChecks();
             EditorApplication.update += OnUpdate;
             AssemblyReloadEvents.beforeAssemblyReload += OnBeforeReload;
@@ -75,6 +80,7 @@ namespace CGS.PaytableLibrary.Tooling
         {
             EditorPrefs.SetInt(PrefTab, (int)_tab);
             EditorPrefs.SetBool(PrefConsole, _showConsole);
+            EditorPrefs.SetFloat(PrefConsoleHeight, _consoleHeight);
             _runTab?.SaveFields();
         }
 
@@ -170,7 +176,10 @@ namespace CGS.PaytableLibrary.Tooling
 
             if (!_showConsole || Probe == null) return;
 
-            using (var s = new EditorGUILayout.ScrollViewScope(_consoleScroll, GUILayout.Height(150)))
+            DrawConsoleResizeHandle();
+
+            using (var s = new EditorGUILayout.ScrollViewScope(_consoleScroll,
+                                                              GUILayout.Height(_consoleHeight)))
             {
                 _consoleScroll = s.scrollPosition;
                 if (!string.IsNullOrEmpty(Probe.CommandLine))
@@ -179,10 +188,55 @@ namespace CGS.PaytableLibrary.Tooling
                     EditorGUILayout.HelpBox(Probe.StartError, MessageType.Error);
                 var text = Probe.OutputText;
                 if (!string.IsNullOrEmpty(text))
-                    EditorGUILayout.SelectableLabel(text, EditorStyles.wordWrappedMiniLabel,
-                        GUILayout.ExpandHeight(true));
+                {
+                    // An explicit content height is what makes this scroll. With
+                    // GUILayout.ExpandHeight the label fills the visible area instead of the
+                    // content, so anything past the fold was simply clipped and unreachable —
+                    // which is no good for the one panel whose whole job is showing full output.
+                    var style = EditorStyles.wordWrappedMiniLabel;
+                    var width = Mathf.Max(60f, EditorGUIUtility.currentViewWidth - 24f);
+                    var h = style.CalcHeight(new GUIContent(text), width);
+                    EditorGUILayout.SelectableLabel(text, style, GUILayout.Height(h));
+                }
             }
         }
+
+        /// <summary>
+        /// A drag strip above the output pane. IMGUI has no splitter, so this is the usual
+        /// three-part idiom: reserve a thin rect, advertise the cursor over it, and move the
+        /// stored height on drag.
+        /// </summary>
+        void DrawConsoleResizeHandle()
+        {
+            var r = GUILayoutUtility.GetRect(0f, 5f, GUILayout.ExpandWidth(true));
+            EditorGUI.DrawRect(r, new Color(0f, 0f, 0f, 0.25f));
+            // Widen the grab area beyond the drawn line — 5px is accurate but unpleasant to hit.
+            var grab = new Rect(r.x, r.y - 2f, r.width, r.height + 4f);
+            EditorGUIUtility.AddCursorRect(grab, MouseCursor.ResizeVertical);
+
+            var e = Event.current;
+            if (e.type == EventType.MouseDown && e.button == 0 && grab.Contains(e.mousePosition))
+            {
+                _resizingConsole = true;
+                e.Use();
+            }
+            else if (_resizingConsole && e.type == EventType.MouseDrag)
+            {
+                // Dragging up grows the pane, which is why delta is subtracted.
+                _consoleHeight = Mathf.Clamp(_consoleHeight - e.delta.y,
+                                             MinConsoleHeight, position.height - 120f);
+                e.Use();
+                Repaint();
+            }
+            else if (_resizingConsole && (e.type == EventType.MouseUp || e.type == EventType.Ignore))
+            {
+                _resizingConsole = false;
+                EditorPrefs.SetFloat(PrefConsoleHeight, _consoleHeight);
+                e.Use();
+            }
+        }
+
+        bool _resizingConsole;
 
         // ── shared helpers for the tabs ─────────────────────────────────────
 

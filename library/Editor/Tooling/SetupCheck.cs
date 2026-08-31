@@ -61,6 +61,13 @@ namespace CGS.PaytableLibrary.Tooling
         [NonSerialized] public Action Fix;
         [NonSerialized] public Action Recheck;
 
+        /// <summary>
+        /// Extra controls drawn inside this row, under the status line. For settings that belong to
+        /// one check and nowhere else — a toggle that changes where this check looks reads as
+        /// unrelated when it sits in some other section's box.
+        /// </summary>
+        [NonSerialized] public Action ExtraUI;
+
         public bool HasFix => Fix != null && !string.IsNullOrEmpty(FixLabel);
 
         public void Set(CheckStatus status, string summary, string detail = null)
