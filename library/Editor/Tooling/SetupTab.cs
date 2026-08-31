@@ -54,6 +54,18 @@ namespace CGS.PaytableLibrary.Tooling
 
         public void EnsureChecks()
         {
+            // A package update reloads the domain, and SetupState survives it — so without this the
+            // rows would still show what they said before the update, including "update available"
+            // for the version that was just fetched.
+            if (SessionState.GetBool(PackageUpdate.JustUpdatedKey, false))
+            {
+                SessionState.SetBool(PackageUpdate.JustUpdatedKey, false);
+                if (_w.Setup.Checks.Count > 0)
+                {
+                    RunAllChecks();
+                    return;
+                }
+            }
             if (_w.Setup.Checks.Count > 0) return;
             _w.Setup.Checks.AddRange(new[]
             {
@@ -274,7 +286,10 @@ namespace CGS.PaytableLibrary.Tooling
                     "Update the package?",
                     $"Fetch {_update.RemoteShort} in place of {_update.LocalShort}.\n\n" +
                     "This edits Packages/packages-lock.json (keeping a .bak), deletes the cached\n" +
-                    "copy under Library/PackageCache, and reloads the editor.",
+                    "copy under Library/PackageCache, and reloads the editor.\n\n" +
+                    "It does NOT update the installed skills — those are copies taken out of the\n" +
+                    "package. Check the Skills row afterwards and press Install / update if it\n" +
+                    "reports drift.",
                     "Update", "Cancel"))
                 return;
 

@@ -18,6 +18,9 @@ namespace CGS.PaytableLibrary.Tooling
     /// </summary>
     public static class PackageUpdate
     {
+        /// <summary>Set across the domain reload a package update causes; see Apply().</summary>
+        public const string JustUpdatedKey = "CGS.Paytable.JustUpdatedPackage";
+
         public enum State { Unknown, NotGit, UpToDate, Behind, CheckFailed, NoLocalPin }
 
         public sealed class Result
@@ -216,8 +219,19 @@ namespace CGS.PaytableLibrary.Tooling
                 return false;
             }
 
+            // Survives the domain reload that Resolve triggers, but not an editor restart —
+            // exactly the lifetime needed to re-run the checks on the other side. Without it the
+            // rows keep their pre-update values and the Package row still claims an update is
+            // available, because SetupState is [SerializeField] and EnsureChecks() does not re-run
+            // once the list is populated.
+            SessionState.SetBool(JustUpdatedKey, true);
+
             UnityEditor.PackageManager.Client.Resolve();
             sb.AppendLine("asked Unity to resolve — it will reload once the fetch completes.");
+            sb.AppendLine();
+            sb.AppendLine("The installed skills are NOT updated by this: they were copied out of the " +
+                          "package, so the copies stay on the old version. Watch the Skills row — if " +
+                          "it turns amber, press Install / update there too.");
             report = sb.ToString();
             return true;
         }
