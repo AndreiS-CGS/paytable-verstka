@@ -62,7 +62,8 @@ magenta placeholder, a reported mismatch, an extra page — over one that silent
 
 ## Context (CGS/Konami)
 - TWO slot systems, BOTH supported and BOTH alive (the system is PER-GAME, detect don't assume):
-  **GEL** (root `PlayStudios.GEL.UI.SliderDialog`, bundles under `Assets/Bundles/_gel/_games/<slot>/`)
+  **GEL** (root `PlayStudios.GameEngineLua.UI.SliderDialog` — note the namespace does NOT match
+  its `GEL/UI` folder; bundles under `Assets/Bundles/_gel/_games/<slot>/`)
   and **MCF** ("обычные"; root `KonamiPortraitPaytable`/`KonamiPaytable`, bundles under
   `Assets/Bundles/_games/<slot>/`).
 - A new slot is cloned from a similar slot, so its paytable prefab ALREADY exists at
@@ -255,7 +256,9 @@ Each phase writes an artifact under `_verstka/` so work survives context compact
 1. Inputs (ask only what's missing): game name, Confluence GDD URL, sprite/asset prefix.
 2. Locate the Unity project root and the game's bundle folder.
 3. Locate the game's EXISTING paytable prefab (`<bundle>/Prefabs/Paytable/PaytableDialog*.prefab`).
-   **Read its root component ONLY** → GEL (`SliderDialog`) or MCF (`KonamiPortraitPaytable`). Note its
+   **Read its root component ONLY** → GEL (`PlayStudios.GameEngineLua.UI.SliderDialog`) or MCF
+   (`KonamiPortraitPaytable`/`KonamiPaytable`, which derive from a DIFFERENT, un-namespaced
+   `SliderDialog` — see Phase 5 step 4). Note its
    possibly-stale filename as a curiosity, not a target — never open/edit/rename/delete it.
 4. Pick the matching shell: `Shells/PaytableDialog_{GEL,MCF}.prefab` from the block library package.
 5. **Unity availability gate.** If unityMCP is not connected, don't block the whole run — proceed
@@ -429,18 +432,29 @@ Write the mapping to `_verstka/block_mapping.md`.
    (`transform.localPosition.x = slot × offset`, slot 0 → x=0) — never touch `PageParent`'s own local
    position inside the page; it stays identical regardless of slot.
 
-   **Read `offset` off the shell you instantiated. Never pick a number.** It is a serialized field on
-   the dialog's root component, spelled differently per system:
+   **Read `offset` off the shell you instantiated. Never pick a number, and never take it from a
+   `class SliderDialog` you found by grep** — there are TWO different classes with that name in this
+   project, and they disagree about both the spelling and the default:
 
-   | System | Root component | Field |
-   |---|---|---|
-   | GEL | `PlayStudios.GEL.UI.SliderDialog` | `cardOffset` |
-   | MCF | `KonamiPortraitPaytable` / `KonamiPaytable` | `CARD_OFFSET` |
+   | System | Base class | Field | Default | Serialized? |
+   |---|---|---|---|---|
+   | GEL | `PlayStudios.GameEngineLua.UI.SliderDialog` (package `com.playstudios.gel`) | `public float cardOffset` | 2500 | yes — read it off the component |
+   | MCF | plain `SliderDialog` in `Assets/Scripts/Widgets/SliderDialog.cs`, no namespace | `protected float CARD_OFFSET` | **1750** | **no** — not `[SerializeField]`, so the component cannot show it |
 
-   Both ship at 2500 today, but read the value rather than assuming it. This has already gone wrong
-   once: a run on a GEL game looked for `CARD_OFFSET` — the MCF spelling — found no such field, chose
-   1750, and laid 46 pages out 1750 apart while the component still said 2500. Nothing errored. Every
-   page rendered correctly on its own; they simply did not line up when swiped.
+   Note the GEL namespace: the folder is `PlayStudios/GEL/UI`, the namespace is
+   `PlayStudios.GameEngineLua.UI`. They do not match, and the shell's root script GUID
+   (`3c0d24c881e494f56bc39a8e57101f27`) is the way to settle it.
+
+   This is where the 1750 came from in the failure below — it was not invented, it was read off the
+   wrong class. A run on a GEL game grepped for `CARD_OFFSET`, landed in
+   `Assets/Scripts/Widgets/SliderDialog.cs`, took its `1750` default, and laid 46 pages out 1750
+   apart while the actual component said 2500. Nothing errored, and every page rendered correctly on
+   its own; they simply did not line up when swiped.
+
+   So: resolve the field **through the instantiated component**, not through a source file. On MCF
+   `CARD_OFFSET` is not serialized at all, so there is nothing to read and 1750 is the real value
+   unless a subclass assigns it in `Awake` — several do (`CARD_OFFSET = winnerObjectWidth`), which is
+   another reason not to trust a grepped literal.
 5. **QA render inline** after each page (see Phase 7 for the technical render setup) — compare to the
    reference: full title, every symbol resolved (not literal `<sprite…>` text), numbers match
    `win_tables.yaml`, nothing clipped.
@@ -491,6 +505,27 @@ float meshBot = tm.rectTransform.TransformPoint(new Vector3(0, b.center.y-b.exte
 float meshTop = tm.rectTransform.TransformPoint(new Vector3(0, b.center.y+b.extents.y, 0)).y;
 bool overflow = (fBot - meshBot > 8) || (meshTop - fTop > 8);
 ```
+
+**Rebuild every layout group parents-first, and measure from `Inner_Group` — never from `Body`.**
+`Body` in `Page_1` has `sizeDelta.x = 0` with anchors `(0,0)/(0,0)`: its width is literally zero
+until `Inner_Group`'s layout group assigns it. Rebuild starting from `Body` — or from `PageParent`,
+which has no layout controller at all — and the width stays 0, every word wraps onto its own line,
+and heights come back roughly 10x too large. That reads exactly like catastrophic overflow and is
+pure measurement artefact: splitting on it produces a dozen phantom pages. If a page reports absurd
+overflow, re-measure before you split.
+
+**The page-level check is necessary and not sufficient.** It compares content against the page
+`Frame`, so it cannot see two panels overlapping *inside* a `StackPage` — that overlap sits entirely
+within the `Frame` and reports clean. Check three things separately, and treat any of them as a
+failure:
+1. text mesh past the page `Frame` (above),
+2. content past its own panel/cell edge,
+3. **overlapping siblings inside a panel or cell.**
+
+Item 3 has already caught a real defect the page check missed: two panels sharing one `StackPage`
+overlapped by 81 and 113 units, invisible to every `Frame`-based measurement, and the fix was one
+panel per page.
+
 **Fix — loop until every page passes:**
 - **Text overflow** → split into a continuation page. Never cut a bullet mid-way; re-measure and
   split again if it still overflows. **Carry the heading across:** the continuation page gets the
@@ -581,6 +616,8 @@ it carries the real sizes and layout settings, read off the prefabs. Summary onl
 | QA screenshot shows nothing / garbage | If it's Scene View, that's a known rendering gap for Canvas UI — use Game View/Play Mode instead. If it's Game View and still blank, check camera Z depth against the content's actual world Z (can be well negative from nested layer offsets). |
 | Ad-hoc QA text renders as tiny illegible dots | Default `TextMeshPro` font (`LiberationSans SDF`) at this canvas's scale — assign the project's font asset explicitly. |
 | Text fits by RectTransform but visibly runs off the page | `overflowMode=Overflow` spills the MESH past the rect — validate via `textBounds` vs the Frame (Phase 7), then split the page. |
+| Every page reports huge overflow; heights ~10x too big | Layout rebuilt from `Body` or `PageParent`. `Body`'s width is 0 until `Inner_Group`'s layout group sets it, so every word wrapped. Rebuild parents-first, measure again (Phase 7). |
+| Panels visibly overlap but the overflow check is clean | The check measures against the page `Frame`; an overlap inside a `StackPage` is within the Frame. Check siblings inside the panel too (Phase 7). |
 | Multi-word/combo symbol not picked up from GDD text | `Symbols.md` is already normalised to sprite names (`' '`→`'_'`, `'+'`→`'PLUS'`). Use it directly; check one way only — every token needs a sprite, not the reverse. |
 
 ## Delegation summary

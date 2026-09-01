@@ -163,8 +163,12 @@ return report + $" | sliced {sliced} sub-sprites";
 
 ```csharp
 var so = new UnityEditor.SerializedObject(sa);
-so.FindProperty("material").objectReferenceValue = mat;
-so.FindProperty("m_FaceInfo.m_PointSize").intValue     = 128;   // = высота исходников
+// m_Material, НЕ "material": material — это C#-свойство, сериализуется backing-поле
+// TMP_Asset.m_Material. FindProperty("material") возвращает null.
+so.FindProperty("m_Material").objectReferenceValue = mat;
+// floatValue, НЕ intValue: m_PointSize здесь float, а присваивание intValue во float-property
+// не делает НИЧЕГО и не ругается — поле остаётся 0.
+so.FindProperty("m_FaceInfo.m_PointSize").floatValue   = 128.0f; // = высота исходников
 so.FindProperty("m_FaceInfo.m_Scale").floatValue       = 10.0f; // = 1 / orthoMult, см. Формулы
 so.FindProperty("m_FaceInfo.m_LineHeight").floatValue  = 128.0f;
 so.FindProperty("m_FaceInfo.m_AscentLine").floatValue  = 64.0f; // половина высоты
@@ -173,6 +177,17 @@ so.FindProperty("m_FaceInfo.m_DescentLine").floatValue = -64.0f;
 so.ApplyModifiedProperties();
 UnityEditor.AssetDatabase.SaveAssets();
 ```
+
+**Два имени полей выше — не косметика, а два молчащих отказа.** Обе ошибки не бросают исключение
+и не пишут в консоль: неверное имя даёт `null` от `FindProperty`, а `intValue` во `float`-property —
+no-op. Ассет собирается «успешно» с нулевым point size или без материала, и увидеть это можно только
+в инспекторе. Поэтому шаг 7 (`FinalImportAndVerify`) обязателен и бросает исключение — на его
+проверки, а не на успешный возврат этого блока, и надо смотреть.
+
+**`WriteSpriteAssetTables` пишет YAML за спиной Unity,** поэтому in-memory копия ассета должна быть
+выгружена ДО вызова — иначе следующий `SaveAssets()` перезапишет правку пустыми таблицами из
+памяти. Если весь пайплайн идёт одним куском кода, разнеси это на отдельные шаги с
+`AssetDatabase.Refresh()` между ними.
 
 Метрики глифов (пишет `WriteSpriteAssetTables`): `height = 128`, `width` = фактическая,
 `horizontalAdvance = width`, **`horizontalBearingY = 64`**, `glyph.scale = 1`,

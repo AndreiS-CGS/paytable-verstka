@@ -7,7 +7,10 @@ see the skill for that. Data format: the `paytable-verstka` skill's `reference/S
 Values below are read off the actual prefabs, not a spec. If you change a prefab, update this file.
 
 ## Shells/PaytableDialog_GEL.prefab
-Root component: `PlayStudios.GEL.UI.SliderDialog`. `cards: []` (empty — fill on assembly). Page
+Root component: `PlayStudios.GameEngineLua.UI.SliderDialog` (script GUID
+`3c0d24c881e494f56bc39a8e57101f27`) — the namespace does NOT match its `GEL/UI` folder, and a
+second, unrelated `SliderDialog` with no namespace exists in `Assets/Scripts/Widgets/`.
+`cards: []` (empty — fill on assembly). Page
 container path: `Body/Cards/anchor/ui`.
 
 **Page spacing comes from `cardOffset` on that component (2500).** Page `i` sits at
