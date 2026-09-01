@@ -417,8 +417,11 @@ Write the mapping to `_verstka/block_mapping.md`.
      Game Rules") — it is NOT unique per page; it repeats unchanged across consecutive pages in the
      same section.
    - `Title` = the bold header text from the GDD section. `™`/`TM` → inline
-     `<color=white><size=20><voffset=600>TM</color></size></voffset>` (delete any leftover
-     `TrademarkText`/`TrademarkText_1` child objects first — don't split the string on `™`). **Color
+     `<color=white><size=20><voffset=600> TM</color></size></voffset>` — note the space **inside**
+     the tags, immediately before `TM`. Outside them it renders at title size and reads as a word
+     break; inside it inherits `size=20` and gives the superscript the hair of air it needs not to
+     collide with the last letter. (Delete any leftover `TrademarkText`/`TrademarkText_1` child
+     objects first — don't split the string on `™`.) **Color
      is taken from the reference screenshot of THIS game** (never hardcoded yellow) — when the Title
      combines 2+ feature names, color each piece with its own established `<color>` tag, connecting
      words neutral/white.
