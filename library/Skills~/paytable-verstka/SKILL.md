@@ -537,6 +537,57 @@ panel per page.
 Re-run Phase 6 after any split — slots, numbering and `cards[]` all shift.
 
 **Rendering the QA screenshot — technical setup:**
+- **Frame the whole page, never the content you just built.** Page chrome lives OUTSIDE `Frame`:
+  `PageParent` is 1690x2100, `Frame` is only 1410x1740, and `Top` (which holds `Header` and the
+  `Page N/M` counter) is anchored to `PageParent`'s TOP edge — above `Frame` entirely, as is `Bottom`
+  below it. `Title` is a sibling of `Body` inside `Inner_Group`, so it is above `Body` too. A camera
+  framed on `Body` — the natural choice, since that is where the content went — silently crops
+  `Header`, the page counter, `Title` and `Bottom`. This has already produced a full QA pass on
+  pages whose header and counter nobody ever saw.
+
+  Do not name an object to frame. Derive the frame from the union of everything under the page root,
+  so nothing can be outside it by construction:
+  ```csharp
+  var corners = new Vector3[4];
+  Vector2 min = new Vector2(float.MaxValue, float.MaxValue), max = -min;
+  foreach (var rt in pageRoot.GetComponentsInChildren<RectTransform>(true))
+  {
+      if (!rt.gameObject.activeInHierarchy) continue;   // switched-off cells are deliberate
+      rt.GetWorldCorners(corners);
+      foreach (var c in corners) { min = Vector2.Min(min, c); max = Vector2.Max(max, c); }
+  }
+  var centre = (min + max) * 0.5f;
+  cam.orthographic = true;
+  cam.orthographicSize = Mathf.Max((max.y - min.y) * 0.5f,
+                                   (max.x - min.x) * 0.5f / cam.aspect) * 1.06f;  // 6% air
+  cam.transform.position = new Vector3(centre.x, centre.y, -60f);
+  ```
+- **Then prove nothing was cropped, before reading the screenshot.** The union fits by construction,
+  so what remains to check is that the chrome was IN the union — an inactive or missing `Header` gives
+  a picture that looks complete and is not. Assert per page, and treat a failure as a failed render
+  rather than a failed page:
+  ```csharp
+  foreach (var name in new[] { "Header", "Page", "Title" })
+  {
+      Transform t = null;
+      // A plain loop, not Linq: this may run through execute_code, which compiles as a method
+      // body with no using directives.
+      foreach (var x in pageRoot.GetComponentsInChildren<Transform>(true))
+          if (x.name == name) { t = x; break; }
+      if (t == null || !t.gameObject.activeInHierarchy)
+          throw new System.Exception($"{pageRoot.name}: {name} missing or inactive — the render " +
+                                     "cannot show it, so this page is not QA'd.");
+      var rt = (RectTransform)t; rt.GetWorldCorners(corners);
+      foreach (var c in corners)
+      {
+          var v = cam.WorldToViewportPoint(c);
+          if (v.x < 0 || v.x > 1 || v.y < 0 || v.y > 1)
+              throw new System.Exception($"{pageRoot.name}: {name} is outside the camera frame.");
+      }
+  }
+  ```
+  `Title` is legitimately switched off on a full-page-image page — allow that case explicitly rather
+  than by letting the check pass silently.
 - Use **Game View / Play Mode**, not Scene View, for anything you're actually judging visually. Scene
   View has repeatedly failed to render `Image`/Canvas UI content (and once rendered a Title vertically
   letter-by-letter) with no real underlying bug — both times a Play Mode screenshot of the exact same
@@ -614,6 +665,7 @@ it carries the real sizes and layout settings, read off the prefabs. Summary onl
 | Feature names not colored consistently | Color comes from the reference screenshot per-game/per-feature, not a hardcoded yellow — check the actual image. |
 | Scatter/bonus symbol pay shows only the credit number | Keep the full award in the same Pay-column line, e.g. `"1000 (+10 FREE GAMES)"` — don't drop the suffix or split it into another column. |
 | QA screenshot shows nothing / garbage | If it's Scene View, that's a known rendering gap for Canvas UI — use Game View/Play Mode instead. If it's Game View and still blank, check camera Z depth against the content's actual world Z (can be well negative from nested layer offsets). |
+| QA render is missing `Header` / the page counter / `Title` | Camera framed on `Body` or `Frame`. `Top` and `Bottom` are anchored to `PageParent`'s edges, OUTSIDE `Frame`; `Title` sits above `Body` inside `Inner_Group`. Frame the union of everything under the page root, then assert the chrome is inside the viewport (Phase 7). |
 | Ad-hoc QA text renders as tiny illegible dots | Default `TextMeshPro` font (`LiberationSans SDF`) at this canvas's scale — assign the project's font asset explicitly. |
 | Text fits by RectTransform but visibly runs off the page | `overflowMode=Overflow` spills the MESH past the rect — validate via `textBounds` vs the Frame (Phase 7), then split the page. |
 | Every page reports huge overflow; heights ~10x too big | Layout rebuilt from `Body` or `PageParent`. `Body`'s width is 0 until `Inner_Group`'s layout group sets it, so every word wrapped. Rebuild parents-first, measure again (Phase 7). |

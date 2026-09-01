@@ -15,8 +15,9 @@ container path: `Body/Cards/anchor/ui`.
 
 **Page spacing comes from `cardOffset` on that component (2500).** Page `i` sits at
 `localPosition.x = i × cardOffset`. Read the field; never hardcode the number — MCF spells the same
-field `CARD_OFFSET`, and that difference is exactly how one run ended up inventing 1750 for a GEL
-game.
+field `CARD_OFFSET` **on a different, un-namespaced `SliderDialog` class** whose default is 1750 and
+which is not `[SerializeField]`. That is exactly how one run laid a GEL game's pages out 1750 apart:
+it grepped `CARD_OFFSET` and read the wrong class's default rather than the component in front of it.
 
 ## Shells/PaytableDialog_MCF.prefab
 Root component: `KonamiPortraitPaytable` (`Assets/MCF/Scripts/Dialog/KonamiPortraitPaytable.cs`).
@@ -37,7 +38,21 @@ Page_1                              ← ROOT, move THIS for slider slot position
         Body                        ← EMPTY. Instantiate one page-level block here.
     Bottom                          (decorative, no text slot)
 ```
-`Body` fixed size: 1410 × 1440. Its `VerticalLayoutGroup`: spacing 0, padding l:50 r:50 t:0 b:0,
+**Page geometry — the chrome is OUTSIDE `Frame`.** `PageParent` is 1690 × 2100; `Frame` is only
+1410 × 1740 and sits at y +24. `Top` (h 122, holding `Header` 1000 × 90 and `Page` 400 × 80) is
+anchored to `PageParent`'s TOP edge, above `Frame`; `Bottom` (h 182) to the bottom edge, below it.
+`Title` (h 300) is a sibling of `Body` inside `Inner_Group`, so it is above `Body`.
+
+Consequence for any measuring or rendering code: **`Body`, `Frame` and `Inner_Group` are all smaller
+than the page.** A QA camera framed on `Body` crops `Header`, the page counter, `Title` and `Bottom`
+— and the screenshot still looks like a complete page. Frame on the union of everything under the
+`Page_1` root instead.
+
+Also note `Body`'s `sizeDelta.x` is **0** with anchors (0,0)/(0,0): its width is assigned at runtime
+by `Inner_Group`'s layout group. Rebuild layout groups parents-first or every measurement off `Body`
+is taken at width 0.
+
+`Body` fixed size: 1410 × 1440 (once laid out). Its `VerticalLayoutGroup`: spacing 0, padding l:50 r:50 t:0 b:0,
 `childControlWidth/childForceExpandWidth=true` (children auto-stretch to width),
 `childControlHeight=false` (children's height is never touched — always set it yourself).
 **Usable width inside Body is therefore 1310.**
