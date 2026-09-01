@@ -431,8 +431,10 @@ def kv(d):
     out.append(f"deps.missing={','.join(missing)}")
     out.append(f"deps.shadowed={','.join(shadowed)}")
     for m, r in mods.items():
-        out.append(f"dep.{m}={'ok' if r['ok'] else 'missing'}"
-                   f"{'' if r['ok'] else ':' + r.get('error', '')}")
+        # One line per module, so newlines in the error have to go — this format is parsed by
+        # splitting on lines, and a wrapped traceback would turn into several bogus keys.
+        err = " ".join((r.get("error") or "").split())
+        out.append(f"dep.{m}={'ok' if r['ok'] else 'missing'}{'' if r['ok'] else ':' + err}")
 
     usable = [i for i in d["interpreters"] if i.get("ok") and not i.get("disqualified")]
     out.append(f"interp.usable={len(usable)}")

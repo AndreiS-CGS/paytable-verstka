@@ -409,7 +409,16 @@ namespace CGS.PaytableLibrary.Tooling
             var d = new StringBuilder();
             d.AppendLine($"venv: {Get("venv.python")}  {(venvExists ? "present" : "MISSING")}");
             d.AppendLine($"dependencies: {okCount}/{total} importable");
-            if (missing.Length > 0) d.AppendLine("  missing:  " + string.Join(", ", missing));
+            foreach (var m in missing)
+            {
+                // The import error itself, not just the name. The doctor has always sent it and
+                // this row used to drop it, which left "missing: requests" looking like one thing
+                // (never installed) when it is just as often another — a broken dependency of it,
+                // or a wheel that unpacked badly.
+                var why = Get("dep." + m, "missing");
+                var i = why.IndexOf(':');
+                d.AppendLine("  missing:  " + m + (i >= 0 ? " — " + why.Substring(i + 1).Trim() : ""));
+            }
             if (shadowed.Length > 0)
             {
                 d.AppendLine("  shadowed: " + string.Join(", ", shadowed));
