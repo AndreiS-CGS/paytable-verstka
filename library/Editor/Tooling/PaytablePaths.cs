@@ -163,6 +163,25 @@ namespace CGS.PaytableLibrary.Tooling
             }
         }
 
+        /// <summary>
+        /// One key out of the config file the Python scripts read. Same file, same spelling —
+        /// so a setting the window writes is a setting the scripts obey, and vice versa.
+        /// Never the token: that lives in its own file and is never read from here.
+        /// </summary>
+        public static string ConfigValue(string key)
+        {
+            try
+            {
+                var p = ToolsConfigFile;
+                if (p == null || !File.Exists(p)) return "";
+                var m = System.Text.RegularExpressions.Regex.Match(
+                    File.ReadAllText(p), "\"" + System.Text.RegularExpressions.Regex.Escape(key) +
+                    "\"\\s*:\\s*\"([^\"]*)\"");
+                return m.Success ? m.Groups[1].Value : "";
+            }
+            catch { return ""; }
+        }
+
         public static string EnvDoctorScript
         {
             get

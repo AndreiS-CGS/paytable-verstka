@@ -115,12 +115,36 @@ def _run(argv, timeout=15):
 
 def _candidate_interpreters():
     out = []
+    # An explicit choice beats every guess below, and _bootstrap.py already honours it, so the
+    # doctor must see it too — otherwise the window offers to build a venv from an interpreter the
+    # scripts will not use.
+    explicit, _ = setting("PAYTABLE_PYTHON")
+    if explicit:
+        out.append(explicit)
+
     if os.name == "nt":
+        # The launcher reads the registry, so this finds installs no glob would guess and needs
+        # nothing on PATH.
         rc, so, _ = _run(["py", "-0p"])
         if rc == 0:
-            out += re.findall(r"(\S+python\.exe)", so, re.I)
-        for pat in (r"%LOCALAPPDATA%\Programs\Python\Python3*\python.exe", r"C:\Python3*\python.exe"):
-            out += glob.glob(os.path.expandvars(pat))
+            for line in so.splitlines():
+                # " -V:3.13 *        C:\Program Files\Python313\python.exe" — take everything
+                # from the drive letter to the end of the line. The old pattern was \S+python\.exe,
+                # which stops at a space: an all-users install under "C:\Program Files" was
+                # captured as "Files\Python313\python.exe", a path that does not exist, so it was
+                # dropped without a word. That is the installer's own default option.
+                m = re.search(r"([A-Za-z]:[\\/][^\r\n]*python\.exe)\s*$", line)
+                if m:
+                    out.append(m.group(1))
+        for pat in (r"%LOCALAPPDATA%\Programs\Python\Python3*\python.exe",
+                    r"%ProgramFiles%\Python3*\python.exe",
+                    r"%ProgramFiles(x86)%\Python3*\python.exe",
+                    r"%ProgramW6432%\Python3*\python.exe",
+                    r"C:\Python3*\python.exe"):
+            expanded = os.path.expandvars(pat)
+            if "%" in expanded:
+                continue          # that variable does not exist on this machine
+            out += glob.glob(expanded)
     else:
         out += ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"]
         out += sorted(glob.glob("/Library/Frameworks/Python.framework/Versions/*/bin/python3"))
@@ -130,6 +154,10 @@ def _candidate_interpreters():
     w = shutil.which("python3") or shutil.which("python")
     if w:
         out.append(w)
+    # The interpreter running this scan is the one interpreter we know for certain exists and
+    # works — something launched it. Leaving it out meant the window could run the doctor
+    # successfully and then report that there was no Python to build a venv from.
+    out.append(sys.executable)
     return out
 
 

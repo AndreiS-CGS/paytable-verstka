@@ -124,6 +124,26 @@ Verify by importing, not by trusting pip's exit code:
 ~/.venvs/paytable-tools/bin/python -c "import requests, PIL, numpy, scipy; print('ok')"
 ```
 
+### When the window cannot find Python at all
+
+Discovery is a pile of guesses about where an installer put things, so it can lose. The escape
+hatch is the **Interpreter** field on the Python row: point it at the interpreter and both the
+window and the skills' scripts use it. It writes `PAYTABLE_PYTHON` into the config file
+(`%APPDATA%\paytable-tools\config.json`, or `~/.config/paytable-tools/config.json`), which
+`_bootstrap.py` already reads — one setting, not two. The environment variable of the same name
+still wins if it is set.
+
+On **Windows** the usual cause is not a missing Python but a stale environment: Unity reads `PATH`
+once, when it launches, so an interpreter installed while Unity was open is invisible to it even
+though a fresh terminal finds it fine. Restarting Unity fixes that; the field fixes it without a
+restart.
+
+Two Windows traps worth knowing, both of which the tool now handles:
+- The **all-users** install goes to `C:\Program Files\Python3xx`. Anything that splits `py -0p`
+  output on whitespace mangles that path at the space and drops the install silently.
+- A zero-length `python.exe` under `WindowsApps` is the Microsoft Store **alias stub**. It exists,
+  it is on `PATH`, and running it opens the Store — so `File.Exists` is a guaranteed false pass.
+
 ## 7. Confluence access (for paytable-pipeline)
 - **ASK** the human to create an Atlassian API token: the plain **Create API token** button at
   `id.atlassian.com/manage-profile/security/api-tokens`, **not** "Create API token with scopes".

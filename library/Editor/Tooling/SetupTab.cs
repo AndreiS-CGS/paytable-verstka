@@ -349,10 +349,13 @@ namespace CGS.PaytableLibrary.Tooling
             var python = ExecutableLocator.FindPython(PaytablePaths.VenvExists);
             if (python == null)
             {
+                // The detail names every place that was actually looked at, on this platform, and
+                // whether each existed. A generic "not found" leaves the user guessing at a
+                // question the locator has already answered.
                 py.Set(CheckStatus.Blocked, "no Python interpreter found",
-                       "Looked in the framework, homebrew, /usr/local, pyenv versions and the " +
-                       "login shell PATH. Unity does not inherit a login PATH, so a python3 that " +
-                       "works in your terminal can still be invisible here.");
+                       ExecutableLocator.DescribeSearch());
+                py.ExtraUI = DrawPythonOverride;
+                conf.Set(CheckStatus.Unknown, "not probed — needs a Python interpreter first");
                 return;
             }
 
@@ -427,6 +430,9 @@ namespace CGS.PaytableLibrary.Tooling
             c.FixWritesOutsideProject = true;
             c.Detail = d.ToString();
             c.Recheck = RunEnvDoctor;
+            // Stays on the row even when the venv is healthy: it is how you see which interpreter
+            // is in force, and the only way to change it without editing a file by hand.
+            c.ExtraUI = DrawPythonOverride;
 
             if (!venvExists)
             {
@@ -661,13 +667,20 @@ namespace CGS.PaytableLibrary.Tooling
 
                 msg.AppendLine();
                 msg.AppendLine(PaytablePaths.IsWindows
-                    ? "Install Python 3.11-3.13 from python.org, ticking \"Add python.exe to PATH\"."
+                    ? "If Python is NOT installed: get 3.11-3.13 from python.org and tick both\n" +
+                      "\"Add python.exe to PATH\" and the py launcher.\n\n" +
+                      "If it IS installed, Unity is probably holding a stale environment — it reads\n" +
+                      "PATH once, at launch, so anything installed afterwards is invisible here.\n" +
+                      "Restart Unity, or settle it outright with the Interpreter field on the Python\n" +
+                      "row: point it at python.exe and both this window and the skills will use it."
                     : "macOS ships only an old Python, which is why this happens on a fresh machine.\n" +
                       "Install a newer one:\n" +
                       "    brew install python@3.13\n" +
-                      "or download 3.11-3.13 from python.org.");
+                      "or download 3.11-3.13 from python.org.\n\n" +
+                      "If one is already installed, use the Interpreter field on the Python row —\n" +
+                      "Unity inherits launchd's environment, not your shell's.");
                 msg.AppendLine();
-                msg.AppendLine("Then press Re-check all — nothing needs restarting.");
+                msg.AppendLine("Then press Re-check all.");
 
                 Debug.LogWarning("[Paytable Tool] " + msg);
                 EditorUtility.DisplayDialog("No usable interpreter", msg.ToString(), "OK");
@@ -760,6 +773,118 @@ namespace CGS.PaytableLibrary.Tooling
             }
         }
 
+        /// <summary>
+        /// The whole config file as key/value pairs. It is flat, and written only by this window,
+        /// so a regex is enough — a JSON dependency for two settings would not pay for itself.
+        /// </summary>
+        static Dictionary<string, string> ReadConfigAll()
+        {
+            var d = new Dictionary<string, string>();
+            try
+            {
+                var p = PaytablePaths.ToolsConfigFile;
+                if (p == null || !File.Exists(p)) return d;
+                foreach (System.Text.RegularExpressions.Match m in
+                         System.Text.RegularExpressions.Regex.Matches(
+                             File.ReadAllText(p), "\"([^\"]+)\"\\s*:\\s*\"([^\"]*)\""))
+                    d[m.Groups[1].Value] = m.Groups[2].Value;
+            }
+            catch { /* a corrupt config must not stop the window drawing */ }
+            return d;
+        }
+
+        /// <summary>
+        /// Sets one key, keeping every other. An empty value removes the key rather than storing
+        /// a blank, so "clear this setting" and "set it to nothing" are the same thing.
+        ///
+        /// Merging is not a nicety. This file previously held one key and was rewritten whole on
+        /// every save, so the moment a second setting joined it, saving either one would silently
+        /// delete the other.
+        /// </summary>
+        static void WriteConfig(string key, string value)
+        {
+            var cfg = PaytablePaths.ToolsConfigFile;
+            if (cfg == null) return;
+            var all = ReadConfigAll();
+            if (string.IsNullOrWhiteSpace(value)) all.Remove(key);
+            else all[key] = value.Trim();
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(cfg));
+                var sb = new StringBuilder("{\n");
+                var i = 0;
+                foreach (var kv in all)
+                    sb.Append("  \"").Append(kv.Key).Append("\": ").Append(Esc(kv.Value))
+                      .Append(++i < all.Count ? ",\n" : "\n");
+                sb.Append("}\n");
+                File.WriteAllText(cfg, sb.ToString());
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("[Paytable Tool] could not write " + cfg + ": " + e.Message);
+            }
+        }
+
+        // ── the Python interpreter override ─────────────────────────────────
+        // The escape hatch for every way interpreter discovery can fail. Discovery is a pile of
+        // guesses about where an installer put things; this is the user telling us instead. It
+        // writes PAYTABLE_PYTHON to the config file, which _bootstrap.py already reads, so the
+        // skills' scripts obey the same choice without a second setting.
+
+        string _pythonOverride;
+
+        void DrawPythonOverride()
+        {
+            if (_pythonOverride == null)
+                _pythonOverride = ExecutableLocator.ExplicitPython() ?? "";
+
+            var fromEnv = !string.IsNullOrEmpty(
+                Environment.GetEnvironmentVariable("PAYTABLE_PYTHON"));
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.LabelField(
+                    new GUIContent("Interpreter", "Leave empty to search automatically"),
+                    GUILayout.Width(70));
+                _pythonOverride = EditorGUILayout.TextField(_pythonOverride);
+
+                if (GUILayout.Button("Browse…", GUILayout.Width(70)))
+                {
+                    var picked = PaytablePaths.IsWindows
+                        ? EditorUtility.OpenFilePanel("Select python.exe", @"C:\", "exe")
+                        : EditorUtility.OpenFilePanel("Select a python interpreter", "/", "");
+                    if (!string.IsNullOrEmpty(picked)) _pythonOverride = picked;
+                }
+
+                using (new EditorGUI.DisabledScope(
+                           _pythonOverride == (ExecutableLocator.ExplicitPython() ?? "")))
+                {
+                    if (GUILayout.Button("Use", GUILayout.Width(44))) ApplyPythonOverride();
+                }
+            }
+
+            if (fromEnv)
+                EditorGUILayout.LabelField(
+                    "PAYTABLE_PYTHON is set in the environment, which wins over this field.",
+                    EditorStyles.miniLabel);
+            else if (!string.IsNullOrEmpty(_pythonOverride) &&
+                     !ExecutableLocator.IsRealExecutable(_pythonOverride))
+                EditorGUILayout.HelpBox(
+                    "Not a usable executable. On Windows a zero-length python.exe under " +
+                    "WindowsApps is the Microsoft Store alias stub — running it opens the Store. " +
+                    "Pick the one under Programs\\Python or Program Files.",
+                    MessageType.Warning);
+        }
+
+        void ApplyPythonOverride()
+        {
+            WriteConfig("PAYTABLE_PYTHON", _pythonOverride);
+            _pythonOverride = ExecutableLocator.ExplicitPython() ?? "";
+            Debug.Log("[Paytable Tool] PAYTABLE_PYTHON = " +
+                      (string.IsNullOrEmpty(_pythonOverride) ? "(cleared)" : _pythonOverride));
+            RunEnvDoctor();
+        }
+
         void SaveConfluenceSettings()
         {
             EditorPrefs.SetBool("CGS.Paytable.Setup.InstallUserWide", _installUserWide);
@@ -781,12 +906,7 @@ namespace CGS.PaytableLibrary.Tooling
             {
                 EditorPrefs.SetString("CGS.Paytable.Setup.ConfluenceEmail", email);
                 _confluenceEmail = email;
-                var cfg = PaytablePaths.ToolsConfigFile;
-                if (cfg != null)
-                {
-                    Directory.CreateDirectory(Path.GetDirectoryName(cfg));
-                    File.WriteAllText(cfg, "{\n  \"CONFLUENCE_EMAIL\": " + Esc(email) + "\n}\n");
-                }
+                WriteConfig("CONFLUENCE_EMAIL", email);
             }
 
             if (!string.IsNullOrEmpty(_patInput))
