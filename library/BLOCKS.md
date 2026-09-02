@@ -64,6 +64,36 @@ genuinely has no heading of its own, such as a full-page Line Configuration imag
 
 ---
 
+# Known design constraints of these blocks
+
+**1. First-frame height collapse — every game hits this.** Text blocks size themselves with
+`ContentSizeFitter` = PreferredSize, which asks `TMP_Text` for `preferredHeight`. TMP returns **0**
+until it has generated its text mesh, so the first layout pass after a page is enabled measures 0 and
+the parent `VerticalLayoutGroup` parks the block against its top padding. In Game Mode a `TextBlock`
+lands at `Pos Y = -25` where the prefab says `-336.995`; toggling the object off and on "fixes" it for
+that session only.
+
+This is inherent to the fitter-driven design, not a bug in any one game. Assembly must **bake** the
+layout: write resolved heights into the `RectTransform`s, disable the fitters, and fill
+`LayoutElement.preferredHeight` (its `layoutPriority: 1` outranks `TMP_Text`'s own `ILayoutElement` at
+0, so `LayoutUtility` stops consulting the mesh).
+
+**Do not do this by hand.** `Editor/PaytableLayoutBake.cs` does it — `BakeAll(dialogRoot, out perPage)`
+to freeze, `Verify(pageRoot)` as the gate that refuses to call a prefab finished while anything can
+still re-measure. It is idempotent, and it touches only the texts a `ContentSizeFitter` actually
+sizes, so the values below that the library sets deliberately survive.
+
+**2. Two layout settings fight the bake.** `SpecialPanel`'s `VerticalLayoutGroup` ships
+`childForceExpandHeight = 1` *and* `childControlHeight = 1`, and its `Label` /
+`OptionalTextBlock` `LayoutElement`s ship `flexibleHeight = 1`. Either one alone is enough to keep
+handing children spare panel height, so a bake taken while they are active freezes an inflated value
+and grows on every re-run. Clearing `flexible` back to `-1` is what actually freezes a child;
+`MiddleCenter` then centres it in the remaining room.
+
+Whether these two settings should keep their current values in the library, or be changed so the bake
+needs no corrective step, is an open decision — changing them alters runtime layout for every game
+still consuming these blocks as nested prefab instances.
+
 # Page-level blocks — one of these goes into `Body`
 
 ## Blocks/GridPage.prefab — symbol grid (majors, minors)
@@ -137,6 +167,9 @@ PayRows   height 322.5  [HorizontalLayoutGroup: padding t25, spacing 50, UpperCe
   Count   [TMP, one multi-line text, fontSize 33.46, ContentSizeFitter = PreferredSize both axes]
   Pay     [TMP, one multi-line text, fontSize 33.46, ContentSizeFitter = PreferredSize both axes]
 ```
+`ContentSizeFitter` on both texts is what makes constraint 1 above (first-frame height collapse) apply
+here too. `spriteAsset` on both must be NULL in the prefab — see the invariant under `TextBlock`.
+
 `Pay`'s first line is **ALWAYS** the literal string `"1 credit"` — a universal rule, added by the
 pipeline rather than read from the reference (which is why most reference screenshots don't show
 it), and never coloured. `Count`'s first line is correspondingly BLANK so the two columns stay
@@ -177,8 +210,19 @@ Single TMP object, width 1310, fontSize **32**, left-aligned, `ContentSizeFitter
 the vertical axis so height follows the content. Ships with bulleted placeholder text.
 
 **One bullet per paragraph, not per visual line** — a wrapped paragraph carries no bullet on its
-continuation. `spriteAsset` is NULL by default: assign the game's TMP Sprite Asset explicitly before
-using inline `<sprite name="X">` tags.
+continuation.
+
+**`spriteAsset` is NULL on every text object in this library, and must stay that way.** Assign the
+game's TMP Sprite Asset explicitly, per text, before using inline `<sprite name="X">` tags. NULL is
+deliberately the default because it fails LOUDLY: an unassigned sprite asset renders the tag as
+literal `<sprite name="X">` text, which nobody can miss. A *wrong* sprite asset fails silently — TMP
+substitutes a fallback glyph, so the page looks populated and only a reader who knows the symbols
+can tell.
+
+This was broken until 2026-09-02: `PayRows.prefab` shipped `Count` and `Pay` with
+`Goat_PaytableSpriteAsset` assigned, so every game assembled from this library inherited a reference
+into the `crazystuffedcoinsgoat` bundle. One game shipped with 41 such references. If you assign a
+sprite asset into a block prefab while debugging, clear it before committing.
 
 `lineSpacing` is 1020 (≈ one extra font size of leading) and `paragraphSpacing` is **500**, which
 separates a new bullet from a wrapped continuation line. Every text string written into this block

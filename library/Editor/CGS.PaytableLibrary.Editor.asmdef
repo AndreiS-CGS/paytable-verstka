@@ -2,6 +2,7 @@
     "name": "CGS.PaytableLibrary.Editor",
     "rootNamespace": "CGS.PaytableLibrary",
     "references": [
+        "UnityEngine.UI",
         "Unity.TextMeshPro",
         "Unity.TextMeshPro.Editor"
     ],

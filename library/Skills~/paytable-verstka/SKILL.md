@@ -492,8 +492,26 @@ Write the mapping to `_verstka/block_mapping.md`.
    The per-page render QA cannot catch a mismatch: each page looks perfect alone, and only swiping
    shows they are spaced wrongly.
 4. Verify sprite hashes (`GetSpriteIndexFromName ≥ 0`). Full-pass QA: render every page vs the GDD set.
-5. **New final step:** move the whole new prefab's root AND every child object, recursively, onto the
-   **"Dialog"** layer.
+5. Move the whole new prefab's root AND every child object, recursively, onto the **"Dialog"** layer.
+6. **Assert the prefab references nothing outside its own bundle.** A paytable that quietly depends on
+   another game's bundle still builds, still renders, and still passes every visual check — the wrong
+   atlas is a valid atlas. Only a dependency audit finds it.
+
+   The concrete failure: the library's `PayRows` block shipped `Count`/`Pay` with
+   `Goat_PaytableSpriteAsset` assigned, so **41 TMP components** in one finished game pointed at the
+   `crazystuffedcoinsgoat` bundle. Assembly had set `spriteAsset` only on the 7 texts carrying inline
+   sprite tags and left the rest on the block default. Fixed in the library on 2026-09-02, but audit
+   anyway — the same thing happens the moment anyone assigns an asset into a block while debugging.
+
+   **Audit by intersection, not by name.** Collect every GUID the prefab references, then intersect
+   that set against the `.meta` files of the other game bundles. Checking the three asset names you
+   happen to suspect proves nothing: here the texture and material were never referenced directly —
+   they arrived transitively through the sprite asset's own `m_Material` and `spriteSheet`, so a
+   name-based check on them returns a clean 0 while the dependency is fully intact.
+
+   Allowed reference targets: this game's own bundle, the `com.cgs.paytablelibrary` package,
+   `Bundles/_gel/_common/*`, and `ExternalTextures/Bundles/_games/commonkonami/*` (shared Konami
+   paytable chrome — `frame.png`, `goldBox.png`). Anything under another `_games/<slot>/` is a defect.
 
 ### Phase 7 — Overflow & visual validation  (MANDATORY auto-fix loop)
 TMP `overflowMode = Overflow` lets text spill past its RectTransform silently — validate by the
@@ -535,6 +553,44 @@ panel per page.
   actually have (6→3+3, 5→3+2, 4→2+2).
 
 Re-run Phase 6 after any split — slots, numbering and `cards[]` all shift.
+
+**Freeze the layout once the loop has converged. This is MANDATORY, not an optimisation** —
+without it the prefab is correct in the editor and collapses the first time it is shown at runtime.
+
+`ContentSizeFitter` (PreferredSize) asks TMP for `preferredHeight`, and **TMP returns 0 until it has
+generated its text mesh.** The first layout pass after a page is enabled therefore measures 0, the
+parent `VerticalLayoutGroup` places the block against its top padding, and nothing schedules a second
+pass. Symptom: every `TextBlock` sits at `Pos Y = -25` in Game Mode against `-336.995` in the prefab,
+and toggling the object off and on by hand "fixes" it. The prefab value was never wrong — the runtime
+measurement was. This is inherent to the fitter-driven block design, so **every game hits it.**
+
+**Do not hand-roll this. Call the library:**
+```csharp
+var report = CGS.PaytableLibrary.PaytableLayoutBake.BakeAll(dialogRoot, out var perPage);
+// then, per page, the gate:
+string problems = CGS.PaytableLibrary.PaytableLayoutBake.Verify(pageRoot);
+```
+`Verify` returns `""` when nothing under the root can re-measure itself at runtime, and a list of
+offenders otherwise. **A non-empty result is a blocking failure of the run, not a note** — a prefab
+that fails it looks completely correct in the editor.
+
+The procedure has three steps and two traps, each trap producing a plausible-looking wrong answer
+rather than an error: baking while `childForceExpandHeight` is on **diverges** (measured
+130 → 264 → 309 on one label across three runs), and clearing that flag is not enough because
+`SpecialPanel` also hands out spare height through `flexibleHeight = 1`. That is exactly why this is
+code and not a paragraph — `Bake` is idempotent by construction and touches only the texts a fitter
+actually sizes, leaving alone the values the library sets on purpose (`PanelRow`'s own
+`flexibleHeight`, the baked grid cell sizes). Read the class's header comment before changing
+anything about it.
+
+**Re-bake whenever what the height derives from changes:** text, font asset or its metrics,
+`fontSize`/`lineSpacing`/`paragraphSpacing`, or a sprite asset swapped for one with different glyph
+heights. Confirm with a second `Bake` — `MaxDelta` must be 0.
+
+**One case baking cannot cover:** a page whose text is rewritten at runtime, e.g.
+`paragraph.text.Replace("$$$", value)`. A baked height is a height for one specific string. Leave
+such a page's fitter live and force a second layout pass at runtime instead. Only one game in the
+project does this today and no current prefab carries the placeholder.
 
 **Rendering the QA screenshot — technical setup:**
 - **Frame the whole page, never the content you just built.** Page chrome lives OUTSIDE `Frame`:
@@ -641,6 +697,9 @@ it carries the real sizes and layout settings, read off the prefabs. Summary onl
 - `PaytableAtlasBuilder.cs` (`CGS.PaytableLibrary.PaytableAtlasBuilder`) — the Unity-side half of
   `cgs-atlas-builder` (material, hashes, YAML table writing, import+verify, sub-sprite slicing).
   See the `cgs-atlas-builder` skill.
+- `PaytableLayoutBake.cs` (`CGS.PaytableLibrary.PaytableLayoutBake`) — `Bake` / `BakeAll` freeze the
+  text layout so it cannot collapse at runtime; `Verify` is the gate that says whether it held. See
+  Phase 7. Editor-only assembly, so nothing ships in the player.
 
 ## Known gotchas
 | Problem | Fix |
@@ -669,6 +728,10 @@ it carries the real sizes and layout settings, read off the prefabs. Summary onl
 | Ad-hoc QA text renders as tiny illegible dots | Default `TextMeshPro` font (`LiberationSans SDF`) at this canvas's scale — assign the project's font asset explicitly. |
 | Text fits by RectTransform but visibly runs off the page | `overflowMode=Overflow` spills the MESH past the rect — validate via `textBounds` vs the Frame (Phase 7), then split the page. |
 | Every page reports huge overflow; heights ~10x too big | Layout rebuilt from `Body` or `PageParent`. `Body`'s width is 0 until `Inner_Group`'s layout group sets it, so every word wrapped. Rebuild parents-first, measure again (Phase 7). |
+| Everything correct in the editor, `TextBlock`s jump to `Pos Y = -25` in Game Mode | `ContentSizeFitter` measured TMP's `preferredHeight` before the mesh existed, so it got 0. Toggling the object fixes it only for that session. Bake the layout (Phase 7). |
+| Baked heights grow every time the bake is run (130 → 264 → 309) | `childForceExpandHeight` is on, so the group inflates the child and the next bake freezes the inflated value. Reset fitters and clear baked values before measuring. |
+| Bake done, `childForceExpandHeight` off, sizes still not frozen | `SpecialPanel`'s `Label`/`OptionalTextBlock` carry `flexibleHeight = 1`; the group gives them spare height regardless of the flag. Clear `flexible` to `-1`. |
+| Prefab depends on another game's bundle | A block prefab had a `spriteAsset` assigned. Library blocks must ship `spriteAsset = NULL`; assign the game's asset per text at assembly. |
 | Panels visibly overlap but the overflow check is clean | The check measures against the page `Frame`; an overlap inside a `StackPage` is within the Frame. Check siblings inside the panel too (Phase 7). |
 | Multi-word/combo symbol not picked up from GDD text | `Symbols.md` is already normalised to sprite names (`' '`→`'_'`, `'+'`→`'PLUS'`). Use it directly; check one way only — every token needs a sprite, not the reverse. |
 
