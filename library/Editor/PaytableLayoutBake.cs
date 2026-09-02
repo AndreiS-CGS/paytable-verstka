@@ -61,7 +61,11 @@ namespace CGS.PaytableLibrary
         /// <summary>Cap on measurement passes. Fitter and group settle in 2-3; more means trouble.</summary>
         public const int MaxPasses = 8;
 
-        /// <summary>Height change below which a pass counts as settled, in world units.</summary>
+        /// <summary>
+        /// Height change below which a PASS counts as settled, in world units. This is an
+        /// intra-run convergence threshold only — it is not a measure of idempotence, see
+        /// <see cref="Bake"/>.
+        /// </summary>
         public const float Epsilon = 0.05f;
 
         /// <summary>
@@ -106,8 +110,12 @@ namespace CGS.PaytableLibrary
         /// puts the hierarchy into a state that does not depend on whether a bake ran before, so
         /// pass 2 of run 2 measures what pass 2 of run 1 measured.
         ///
-        /// Verify by running it twice — <see cref="Report.MaxDelta"/> on the second run must be 0.
-        /// Anything else means the reset is not covering something that inflates a child.
+        /// Verify by running it twice and comparing the BAKED NUMBERS between runs — not
+        /// <see cref="Report.MaxDelta"/>, which measures how far the layout moved between passes
+        /// WITHIN one run and therefore settles to ~0 on any successful run, first or second. It
+        /// says nothing about whether two runs agree, so it would not have caught the
+        /// 130 -> 264 -> 309 divergence this class exists to prevent. Snapshot every owned text's
+        /// rect size and preferredWidth/Height, run again, and diff.
         /// </summary>
         public static Report Bake(GameObject root)
         {

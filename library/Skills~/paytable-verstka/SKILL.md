@@ -585,7 +585,13 @@ anything about it.
 
 **Re-bake whenever what the height derives from changes:** text, font asset or its metrics,
 `fontSize`/`lineSpacing`/`paragraphSpacing`, or a sprite asset swapped for one with different glyph
-heights. Confirm with a second `Bake` — `MaxDelta` must be 0.
+heights.
+
+**Confirm idempotence by comparing the baked NUMBERS across two runs, not by reading `MaxDelta`.**
+`MaxDelta` is the pass-to-pass settle delta inside a single run, so it reads ~0 on any run that
+succeeded and proves nothing about two runs agreeing — it would not catch the divergence it looks
+like it is guarding against. Snapshot each owned text's rect size and `preferredWidth`/`Height`, run
+`BakeAll` again, and diff: acceptance is drift exactly 0, `Verify` empty, and both runs converged.
 
 **One case baking cannot cover:** a page whose text is rewritten at runtime, e.g.
 `paragraph.text.Replace("$$$", value)`. A baked height is a height for one specific string. Leave
