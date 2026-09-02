@@ -92,6 +92,29 @@ namespace CGS.PaytableLibrary
 
             public bool Ok => Converged && Warnings.Count == 0;
 
+            /// <summary>
+            /// Folds one page's report into this one. Lives here, beside the fields, on purpose:
+            /// when the summing lived in BakeAll, adding SkippedInactive left it out of the total,
+            /// and the combined report cheerfully printed "skipped 0" while 24 texts had in fact
+            /// been skipped. A tally that silently omits a field is the same false green this
+            /// library keeps having to design against.
+            /// </summary>
+            internal void Absorb(Report r, string label)
+            {
+                Texts += r.Texts;
+                HeightsBaked += r.HeightsBaked;
+                WidthsBaked += r.WidthsBaked;
+                FittersDisabled += r.FittersDisabled;
+                FlexiblesCleared += r.FlexiblesCleared;
+                ForceExpandCleared += r.ForceExpandCleared;
+                LayoutElementsAdded += r.LayoutElementsAdded;
+                SkippedInactive += r.SkippedInactive;
+                Passes = Mathf.Max(Passes, r.Passes);
+                MaxDelta = Mathf.Max(MaxDelta, r.MaxDelta);
+                Converged &= r.Converged;
+                foreach (var w in r.Warnings) Warnings.Add(label + ": " + w);
+            }
+
             public override string ToString()
             {
                 var sb = new StringBuilder();
@@ -165,17 +188,7 @@ namespace CGS.PaytableLibrary
             {
                 var r = Bake(page);
                 perPage.Add(r);
-                combined.Texts += r.Texts;
-                combined.HeightsBaked += r.HeightsBaked;
-                combined.WidthsBaked += r.WidthsBaked;
-                combined.FittersDisabled += r.FittersDisabled;
-                combined.FlexiblesCleared += r.FlexiblesCleared;
-                combined.ForceExpandCleared += r.ForceExpandCleared;
-                combined.LayoutElementsAdded += r.LayoutElementsAdded;
-                combined.Passes = Mathf.Max(combined.Passes, r.Passes);
-                combined.MaxDelta = Mathf.Max(combined.MaxDelta, r.MaxDelta);
-                combined.Converged &= r.Converged;
-                foreach (var w in r.Warnings) combined.Warnings.Add(page.name + ": " + w);
+                combined.Absorb(r, page.name);
             }
             if (perPage.Count == 0)
             {
