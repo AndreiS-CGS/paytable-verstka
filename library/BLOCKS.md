@@ -209,8 +209,22 @@ fill it. Magenta so an unfilled slot is impossible to miss on screen.
 Single TMP object, width 1310, fontSize **32**, left-aligned, `ContentSizeFitter` = PreferredSize on
 the vertical axis so height follows the content. Ships with bulleted placeholder text.
 
-**One bullet per paragraph, not per visual line** — a wrapped paragraph carries no bullet on its
-continuation.
+**One instance per paragraph, one bullet per instance.** A page's rules copy is N `TextBlock`
+siblings in `Body`, not one instance holding N paragraphs — `Body` stacks them identically either
+way, and separate objects are what make a page split (or a hand-move of one paragraph to another
+page) a drag in the hierarchy instead of a string edit. A wrapped paragraph still carries no bullet
+on its continuation lines.
+
+**Consequence: `m_paragraphSpacing` (500) is inert under this convention.** TMP applies it only at a
+paragraph break inside a single text object, and single-paragraph instances have none. The gap
+between paragraphs is now the container's Vertical Layout Group `spacing` — and `Body` ships
+`spacing = 0`, so it must be set, or the paragraphs render flush.
+
+The value is left unset in this library on purpose: `paragraphSpacing × fontSize × 0.01 ×
+orthographicMultiplier` yields 16 or 160 depending on `m_isOrthographic`, which every prefab
+serializes as `0` while `TextMeshProUGUI.Awake` sets it to `true`, and neither figure reconciles with
+the line steps measured for the `line-height` calibration. Match it by eye against an existing
+single-object page rather than shipping an unverified constant.
 
 **`spriteAsset` is NULL on every text object in this library, and must stay that way.** Assign the
 game's TMP Sprite Asset explicitly, per text, before using inline `<sprite name="X">` tags. NULL is

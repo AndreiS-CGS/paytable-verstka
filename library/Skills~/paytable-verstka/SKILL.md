@@ -211,7 +211,8 @@ magenta placeholder, a reported mismatch, an extra page — over one that silent
   the `cgs-atlas-builder` skill's SKILL.md → "Формулы".
 
   Never "fix" a soft, oversized or misaligned sprite by editing the sprite asset — change `P`.
-- **Every TextBlock's text opens with a `<line-height=N%>` tag.** A sprite grows the line box of only
+- **Every TextBlock's text opens with its OWN `<line-height=N%>` tag**, derived from the tallest
+  sprite in that paragraph — one object per paragraph, so the tag is per paragraph too. A sprite grows the line box of only
   the line it sits on — 125.2 units at `P=340%` against a plain line's 52 — so TMP leaves the leading
   ragged. Measured steps in a real mixed block came out 84.7 / 97.7 / 114.9 depending on whether a
   line and its neighbour carry sprites: a 36% spread that reads as broken layout. `lineSpacing`
@@ -366,10 +367,38 @@ Write the mapping to `_verstka/block_mapping.md`.
    switching off what you don't need, not by constructing rows and cells from scratch.** Real sizes
    and layout settings live in `library/BLOCKS.md`.
 
-   **a) Rules text page:** instantiate `Page_1`; in its `Body`, instantiate `TextBlock`(s) (bulleted,
-   font and size untouched — the prefab auto-sizes its own height) and a `ManualSlot` wherever the
-   reference shows a diagram, table or legend. Multiple pieces are just siblings in display order —
-   `Body` is a Vertical Layout Group and stacks them, no manual positioning.
+   **a) Rules text page:** instantiate `Page_1`; in its `Body`, instantiate **one `TextBlock` per
+   paragraph** (bulleted, font and size untouched — the prefab auto-sizes its own height) and a
+   `ManualSlot` wherever the reference shows a diagram, table or legend. Multiple pieces are just
+   siblings in display order — `Body` is a Vertical Layout Group and stacks them, no manual
+   positioning. Name them `TextBlock_1..N` so the reading order is legible in the hierarchy.
+
+   **One paragraph = one text object.** Not one object holding every paragraph of the page. `Body`
+   stacks them either way, so the rendering is the same, and the difference shows up the moment
+   anything has to change:
+   - **Splitting an overflowing page becomes moving objects, not cutting a string** on a paragraph
+     boundary and re-measuring. That split is not rare — it happened twice in one game.
+   - **Moving a paragraph between pages by hand** is a drag in the hierarchy. With one object per
+     page it is a copy-paste of substring, done wrong easily.
+   - **The `line-height` tag gets tighter.** `N` is derived from the tallest sprite in the block, so
+     one object spanning the whole page forces every paragraph to the height demanded by its single
+     tallest sprite. Per paragraph, a sprite-free paragraph keeps a plain line height.
+   - Per-paragraph overflow measurement tells you exactly where to cut, instead of "somewhere in
+     this block".
+
+   **Mind the paragraph gap — it does NOT come along for free.** Today the space between paragraphs
+   is `paragraphSpacing = 500` on the TMP component, which TMP applies only at a paragraph break
+   *inside* one text object. Split the paragraphs into separate objects and that setting goes inert:
+   there are no internal breaks left, and `Body`'s Vertical Layout Group ships `spacing = 0`, so the
+   paragraphs will sit flush against each other.
+
+   The gap has to move to the container's `spacing`. **Measure the value, do not derive it.** The
+   arithmetic is `paragraphSpacing × fontSize × 0.01 × orthographicMultiplier`, and
+   `orthographicMultiplier` is 1 or 0.1 depending on `m_isOrthographic` — which is serialized as `0`
+   in every prefab but set to `true` in `TextMeshProUGUI.Awake`. That gives 16 or 160, and neither
+   reconciles cleanly with the line steps measured in this skill, so the honest answer is to render
+   one page both ways and match the gap by eye against the existing single-object pages. Do this
+   once, on the first page, then reuse the number for the run.
    `ManualSlot` height sizing (general — use for ANY one-off image content): on the reference
    screenshot measure `image_height / body_area_height` (the Body-equivalent area only, not the whole
    card with background) and multiply by `Body`'s height. Recompute per image, never reuse a number
@@ -746,6 +775,7 @@ it carries the real sizes and layout settings, read off the prefabs. Summary onl
 | Baked heights grow every time the bake is run (130 → 264 → 309) | `childForceExpandHeight` is on, so the group inflates the child and the next bake freezes the inflated value. Reset fitters and clear baked values before measuring. |
 | Bake done, `childForceExpandHeight` off, sizes still not frozen | `SpecialPanel`'s `Label`/`OptionalTextBlock` carry `flexibleHeight = 1`; the group gives them spare height regardless of the flag. Clear `flexible` to `-1`. |
 | Prefab depends on another game's bundle | A block prefab had a `spriteAsset` assigned. Library blocks must ship `spriteAsset = NULL`; assign the game's asset per text at assembly. |
+| Paragraphs sit flush with no gap between them | The gap used to come from `paragraphSpacing` inside one text object; with one paragraph per object that setting is inert. Put the gap on the container's `spacing` — measured, not derived (Phase 5a). |
 | Panels visibly overlap but the overflow check is clean | The check measures against the page `Frame`; an overlap inside a `StackPage` is within the Frame. Check siblings inside the panel too (Phase 7). |
 | Multi-word/combo symbol not picked up from GDD text | `Symbols.md` is already normalised to sprite names (`' '`→`'_'`, `'+'`→`'PLUS'`). Use it directly; check one way only — every token needs a sprite, not the reverse. |
 
