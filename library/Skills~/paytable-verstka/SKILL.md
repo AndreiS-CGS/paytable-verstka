@@ -386,19 +386,20 @@ Write the mapping to `_verstka/block_mapping.md`.
    - Per-paragraph overflow measurement tells you exactly where to cut, instead of "somewhere in
      this block".
 
-   **Mind the paragraph gap — it does NOT come along for free.** Today the space between paragraphs
-   is `paragraphSpacing = 500` on the TMP component, which TMP applies only at a paragraph break
-   *inside* one text object. Split the paragraphs into separate objects and that setting goes inert:
-   there are no internal breaks left, and `Body`'s Vertical Layout Group ships `spacing = 0`, so the
-   paragraphs will sit flush against each other.
+   **The paragraph gap now comes from `Body`'s `spacing`, which is 16.** It used to come from
+   `paragraphSpacing = 500` on the TMP component, which TMP applies only at a paragraph break
+   *inside* one text object — so with one paragraph per object that setting is inert and would have
+   left the paragraphs flush. `Body`'s Vertical Layout Group carries the 16 instead; nothing to set
+   per page.
 
-   The gap has to move to the container's `spacing`. **Measure the value, do not derive it.** The
-   arithmetic is `paragraphSpacing × fontSize × 0.01 × orthographicMultiplier`, and
-   `orthographicMultiplier` is 1 or 0.1 depending on `m_isOrthographic` — which is serialized as `0`
-   in every prefab but set to `true` in `TextMeshProUGUI.Awake`. That gives 16 or 160, and neither
-   reconciles cleanly with the line steps measured in this skill, so the honest answer is to render
-   one page both ways and match the gap by eye against the existing single-object pages. Do this
-   once, on the first page, then reuse the number for the run.
+   16 is measured, not derived. On a real prefab, four `TextBlock`s with different line heights
+   (soft-wrap advances of 84.66 and 126.28) each showed a hard-break advance exactly 16.00 higher.
+   That also settles the arithmetic — `paragraphSpacing x fontSize x 0.01 x orthographicMultiplier`
+   with the multiplier at **0.1**, i.e. `500 x 32 x 0.001 = 16`. Do not re-derive it with the
+   multiplier at 1.0; that gives 160 and is wrong.
+
+   `Body`'s spacing is harmless on the other page types: a Vertical Layout Group applies spacing only
+   *between* children, and a grid or stack page puts exactly one block in `Body`.
    `ManualSlot` height sizing (general — use for ANY one-off image content): on the reference
    screenshot measure `image_height / body_area_height` (the Body-equivalent area only, not the whole
    card with background) and multiply by `Body`'s height. Recompute per image, never reuse a number
