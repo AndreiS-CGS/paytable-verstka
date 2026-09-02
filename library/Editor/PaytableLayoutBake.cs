@@ -201,17 +201,27 @@ namespace CGS.PaytableLibrary
 
                 if (fitter == null) continue;   // never fitter-driven, so never at risk
 
+                // A LayoutElement is only needed where a parent group actually asks about this
+                // axis. PayRows' HorizontalLayoutGroup ships childControlHeight = false on
+                // purpose — the children's height is the fitter's business alone — so demanding
+                // one there reports 16 non-problems next to the real ones, and a checker that
+                // cries wolf gets skimmed. Measured on a real prefab, which is how this rule got
+                // narrowed.
+                var parentControlsHeight = ParentControlsHeight(t.transform);
+
                 var le = t.GetComponent<LayoutElement>();
                 if (le == null)
                 {
-                    problems.Add(path + ": no LayoutElement, so the parent group falls through to " +
-                                 "TMP_Text's own ILayoutElement and measures the mesh");
+                    if (parentControlsHeight)
+                        problems.Add(path + ": no LayoutElement, so the parent group falls through " +
+                                     "to TMP_Text's own ILayoutElement and measures the mesh");
                     continue;
                 }
-                if (le.layoutPriority < BakedLayoutPriority)
+                if (parentControlsHeight && le.layoutPriority < BakedLayoutPriority)
                     problems.Add($"{path}: LayoutElement.layoutPriority is {le.layoutPriority}; " +
                                  $"TMP_Text is 0, so it needs at least {BakedLayoutPriority} to win");
-                if (fitter.verticalFit == ContentSizeFitter.FitMode.PreferredSize &&
+                if (parentControlsHeight &&
+                    fitter.verticalFit == ContentSizeFitter.FitMode.PreferredSize &&
                     le.preferredHeight <= 0f)
                     problems.Add(path + ": vertical fit was PreferredSize but no height is baked");
                 if (le.flexibleHeight > 0f)
@@ -442,6 +452,19 @@ namespace CGS.PaytableLibrary
                 if (child.GetComponentInChildren<TMP_Text>(true) != null)
                     pages.Add(child.gameObject);
             return pages;
+        }
+
+        /// <summary>
+        /// Whether this object's parent layout group controls its height. When it does not, the
+        /// height is the fitter's business alone and no LayoutElement is required — but the fitter
+        /// still has to be disabled, because it is the thing that measures 0 on the first frame.
+        /// </summary>
+        static bool ParentControlsHeight(Transform t)
+        {
+            var parent = t.parent;
+            if (parent == null) return false;
+            var g = parent.GetComponent<HorizontalOrVerticalLayoutGroup>();
+            return g != null && g.childControlHeight;
         }
 
         static string Path(Transform t, Transform root)
