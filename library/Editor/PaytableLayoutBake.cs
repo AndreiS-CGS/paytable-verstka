@@ -84,6 +84,7 @@ namespace CGS.PaytableLibrary
             public int FlexiblesCleared;
             public int ForceExpandCleared;
             public int LayoutElementsAdded;
+            public int SkippedInactive;
             public int Passes;
             public bool Converged;
             public float MaxDelta;
@@ -99,6 +100,7 @@ namespace CGS.PaytableLibrary
                 sb.Append($"fitters disabled {FittersDisabled}, flexible cleared {FlexiblesCleared}, ");
                 sb.Append($"forceExpand cleared {ForceExpandCleared}, ");
                 sb.Append($"LayoutElements added {LayoutElementsAdded}, ");
+                sb.Append($"skipped (switched off) {SkippedInactive}, ");
                 sb.Append($"passes {Passes}, max delta {MaxDelta:F3}");
                 foreach (var w in Warnings) sb.Append("\n  ! ").Append(w);
                 return sb.ToString();
@@ -126,7 +128,7 @@ namespace CGS.PaytableLibrary
                 return report;
             }
 
-            var owned = OwnedTexts(root);
+            var owned = OwnedTexts(root, report);
             report.Texts = owned.Count;
             if (owned.Count == 0)
             {
@@ -201,6 +203,8 @@ namespace CGS.PaytableLibrary
 
             foreach (var t in root.GetComponentsInChildren<TMP_Text>(true))
             {
+                // A switched-off block is a layout decision, not a defect — see OwnedTexts.
+                if (!t.gameObject.activeInHierarchy) continue;
                 var path = Path(t.transform, root.transform);
                 var fitter = t.GetComponent<ContentSizeFitter>();
                 if (fitter != null && fitter.enabled)
@@ -252,6 +256,16 @@ namespace CGS.PaytableLibrary
         /// The texts this bake owns: a <c>TMP_Text</c> that a <c>ContentSizeFitter</c> sizes.
         /// Everything else is left strictly alone.
         ///
+        /// Switched-off subtrees are skipped, and that is not an optimisation. The library's whole
+        /// layout vocabulary is "switch off what you don't need" — unused <c>GridCell_3</c>,
+        /// <c>SpecialPanel_2</c>/<c>_3</c>, <c>ImageContainer_2..4</c>, <c>PayRows</c> on a trigger
+        /// panel, <c>Title</c> on a full-page image. Nothing under them is ever laid out, so their
+        /// measured height is 0, and baking that 0 while disabling the fitter is strictly worse
+        /// than leaving them alone: the page renders identically today, and the moment anyone
+        /// enables that panel its text is pinned to zero height with nothing left to re-measure it.
+        /// The first live run on a real prefab did exactly this to 24 texts before this filter
+        /// existed.
+        ///
         /// The narrowness is deliberate. A blanket pass over every <c>LayoutElement</c> would wipe
         /// values the library sets on purpose — <c>PanelRow</c>'s own root carries
         /// <c>flexibleHeight = 1</c> precisely so it absorbs whatever height the panel has left
@@ -259,11 +273,14 @@ namespace CGS.PaytableLibrary
         /// <c>GridPage</c>/<c>GridCell</c>. Clearing those would not collapse anything at runtime;
         /// it would quietly relayout the whole panel at bake time instead.
         /// </summary>
-        static List<TMP_Text> OwnedTexts(GameObject root)
+        static List<TMP_Text> OwnedTexts(GameObject root, Report report = null)
         {
-            return root.GetComponentsInChildren<TMP_Text>(true)
-                       .Where(t => t.GetComponent<ContentSizeFitter>() != null)
-                       .ToList();
+            var all = root.GetComponentsInChildren<TMP_Text>(true)
+                          .Where(t => t.GetComponent<ContentSizeFitter>() != null)
+                          .ToList();
+            var live = all.Where(t => t.gameObject.activeInHierarchy).ToList();
+            if (report != null) report.SkippedInactive = all.Count - live.Count;
+            return live;
         }
 
         /// <summary>The layout groups that directly parent an owned text.</summary>

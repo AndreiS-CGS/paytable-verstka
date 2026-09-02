@@ -593,6 +593,14 @@ succeeded and proves nothing about two runs agreeing — it would not catch the 
 like it is guarding against. Snapshot each owned text's rect size and `preferredWidth`/`Height`, run
 `BakeAll` again, and diff: acceptance is drift exactly 0, `Verify` empty, and both runs converged.
 
+**Switched-off blocks are skipped, deliberately.** The library's layout vocabulary is "switch off
+what you don't need" — unused `GridCell_3`, `SpecialPanel_2`/`_3`, `ImageContainer_2..4`, `PayRows`
+on a trigger panel, `Title` on a full-page image. Nothing under them is laid out, so they measure 0,
+and baking that 0 while disabling the fitter is worse than leaving them alone: the page looks
+identical today, and the moment someone enables that panel its text is pinned to zero height with
+nothing left to re-measure it. `Bake` reports the count as `skipped (switched off)`. Do not read a
+non-zero number there as work left undone.
+
 **One case baking cannot cover:** a page whose text is rewritten at runtime, e.g.
 `paragraph.text.Replace("$$$", value)`. A baked height is a height for one specific string. Leave
 such a page's fitter live and force a second layout pass at runtime instead. Only one game in the
