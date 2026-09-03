@@ -64,6 +64,26 @@ genuinely has no heading of its own, such as a full-page Line Configuration imag
 
 ---
 
+# Where the blocks are instantiated FROM
+
+**Not from this package.** Before assembly, `Editor/PaytableBlockImport.cs` copies `Blocks/` into the
+game's own `<bundle>/Prefabs/Paytable/Nested/`, and the paytable nests those copies.
+
+A git-resolved package sits in `Library/PackageCache/` — read-only and wiped on every re-resolve.
+A prefab nesting instances from there cannot have overrides applied back, makes the asset bundle
+depend on something outside itself, and shows as missing references to anyone without the package.
+The old workaround was unpacking the finished prefab, which inlines everything and severs the link
+to this library permanently.
+
+The copy is not a plain file copy: the blocks reference each other
+(`GridPage → GridCell → IconSlot, PayRows`, `StackPage → SpecialPanel → PanelRow → IconSlot,
+PayRows`, `SpecialPanel → TextBlock`), so copies must be repointed at each other or the tree ends up
+half local and half packaged. `Import` does that and verifies no package reference survives.
+
+Re-import to pick up a change made here — an existing copy is overwritten in place and keeps its
+GUID, so assembled paytables stay linked. Until someone re-imports, a game keeps the snapshot it
+took.
+
 # Known design constraints of these blocks
 
 **1. First-frame height collapse — every game hits this.** Text blocks size themselves with

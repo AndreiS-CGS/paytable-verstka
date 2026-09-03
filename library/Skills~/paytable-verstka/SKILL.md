@@ -359,6 +359,35 @@ Write the mapping to `_verstka/block_mapping.md`.
 > splitting across calls loses everything from the first call. Always end with
 > `PrefabUtility.SaveAsPrefabAsset(root, path)` BEFORE `GoToMainStage()`.
 
+0. **Import the blocks into the game's bundle FIRST, and instantiate from those copies.**
+   ```csharp
+   var rep = CGS.PaytableLibrary.PaytableBlockImport.Import(
+                 "Assets/Bundles/_gel/_games/<slot>/Prefabs/Paytable");
+   // rep.Ok must be true; a warning means the copies still reach into the package
+   var page = CGS.PaytableLibrary.PaytableBlockImport.Block(paytableFolder, "Page_1");
+   ```
+   This puts the library's `Blocks/` into `<paytable folder>/Nested/` and repoints the copies at
+   each other. **Instantiate only from `Nested/`, never from the package.**
+
+   A git-resolved package lives in `Library/PackageCache/` — read-only, and wiped on every
+   re-resolve. Assemble straight from there and the shipped prefab nests instances that live inside
+   a package: overrides cannot be applied back, the asset bundle depends on something outside
+   itself, and a colleague without the package opens a prefab of missing references. The escape used
+   to be **unpacking the whole prefab** — one game went from 143 KB and structured to 933 KB of 305
+   inline objects, and lost every link to the library doing it. Copying first costs a folder and
+   keeps the nesting.
+
+   Do not hand-roll the copy. The blocks reference each other
+   (`GridPage → GridCell → IconSlot, PayRows`, `StackPage → SpecialPanel → PanelRow → …`), so plain
+   copies still point at the package originals for their own children — half the tree local, half
+   packaged, worse than either. `Import` rewrites those GUIDs and refuses to report success while
+   one package reference survives.
+
+   Re-running `Import` is how you pick a library fix up later: an already-present block is
+   overwritten in place, keeping its GUID, so an assembled paytable stays linked rather than
+   orphaned. The copies are a snapshot either way — a library change does not reach a game that
+   already imported until someone re-imports.
+
 1. Clone the matching shell (`Shells/PaytableDialog_{GEL,MCF}.prefab`) to the new
    `PaytableDialog<Game>.prefab` path — never the game's existing donor file.
 2. For each logical block, build per its mapped type:
@@ -741,6 +770,9 @@ it carries the real sizes and layout settings, read off the prefabs. Summary onl
 - `PaytableAtlasBuilder.cs` (`CGS.PaytableLibrary.PaytableAtlasBuilder`) — the Unity-side half of
   `cgs-atlas-builder` (material, hashes, YAML table writing, import+verify, sub-sprite slicing).
   See the `cgs-atlas-builder` skill.
+- `PaytableBlockImport.cs` (`CGS.PaytableLibrary.PaytableBlockImport`) — `Import` copies `Blocks/`
+  into the game's `<paytable>/Nested/` and repoints the copies at each other; `Block(folder, name)`
+  loads one to instantiate. Run it before anything else in Phase 5.
 - `PaytableLayoutBake.cs` (`CGS.PaytableLibrary.PaytableLayoutBake`) — `Bake` / `BakeAll` freeze the
   text layout so it cannot collapse at runtime; `Verify` is the gate that says whether it held. See
   Phase 7. Editor-only assembly, so nothing ships in the player.
@@ -775,6 +807,8 @@ it carries the real sizes and layout settings, read off the prefabs. Summary onl
 | Everything correct in the editor, `TextBlock`s jump to `Pos Y = -25` in Game Mode | `ContentSizeFitter` measured TMP's `preferredHeight` before the mesh existed, so it got 0. Toggling the object fixes it only for that session. Bake the layout (Phase 7). |
 | Baked heights grow every time the bake is run (130 → 264 → 309) | `childForceExpandHeight` is on, so the group inflates the child and the next bake freezes the inflated value. Reset fitters and clear baked values before measuring. |
 | Bake done, `childForceExpandHeight` off, sizes still not frozen | `SpecialPanel`'s `Label`/`OptionalTextBlock` carry `flexibleHeight = 1`; the group gives them spare height regardless of the flag. Clear `flexible` to `-1`. |
+| Paytable prefab full of missing references on another machine | It nests blocks that live in `Library/PackageCache/`. Import the blocks into `<paytable>/Nested/` and instantiate from there (Phase 5 step 0). |
+| Tempted to unpack the prefab to break the package dependency | Don't — unpacking inlines everything and severs the library link for good. Importing the blocks locally solves the same problem and keeps the nesting. |
 | Prefab depends on another game's bundle | A block prefab had a `spriteAsset` assigned. Library blocks must ship `spriteAsset = NULL`; assign the game's asset per text at assembly. |
 | Paragraphs sit flush with no gap between them | The gap used to come from `paragraphSpacing` inside one text object; with one paragraph per object that setting is inert. Put the gap on the container's `spacing` — measured, not derived (Phase 5a). |
 | Panels visibly overlap but the overflow check is clean | The check measures against the page `Frame`; an overlap inside a `StackPage` is within the Frame. Check siblings inside the panel too (Phase 7). |
