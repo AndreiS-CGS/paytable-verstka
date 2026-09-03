@@ -240,15 +240,18 @@ paragraph break inside a single text object, and single-paragraph instances have
 between paragraphs is now the container's Vertical Layout Group `spacing` — and `Body` ships
 `spacing = 0`, so it must be set, or the paragraphs render flush.
 
-**`Body`'s `spacing` is therefore 16**, not 0 as it was before this convention.
+**`Body`'s `spacing` is therefore 60**, not the 0 it was before this convention.
 
-16 is measured, not derived. On a finished prefab, four `TextBlock`s with different `line-height`
-tags — soft-wrap advances of 84.66 and 126.28 — each showed a hard-break advance exactly 16.00
-higher, because TMP adds `paragraphSpacing` only at a hard newline. That also settles the arithmetic:
-`paragraphSpacing × fontSize × 0.01 × orthographicMultiplier` with the multiplier at **0.1**, so
-`500 × 32 × 0.001 = 16`. The multiplier is NOT 1.0 despite `TextMeshProUGUI.Awake` setting
-`m_isOrthographic = true` — every prefab serializes it as `0` and that is what layout uses. Deriving
-it the other way gives 160, which is ten times too much.
+60 is not `paragraphSpacing`'s contribution. That measures 16 — the extra TMP adds at a hard newline
+on top of a normal line advance — and it is the wrong quantity, because between two paragraphs
+inside one object there was also a whole line advance, which splitting removes as well. The
+container replaces both, less the two objects' own ascender+descender:
+`hardBreakAdvance − (asc+desc) = 100.66 − 42.24 ≈ 58`, rounded to 60.
+
+Measured, not reasoned: a real run at `spacing = 16` lost 96–312 units of page height; at 58 the
+residual was ±94. One value cannot be exact everywhere, because the advance being replaced scales
+with the block's `line-height` (100% plain, 180% with inline sprites). 60 suits plain text and is
+slightly tight where sprites are — do not fix that by tuning `Body` per page.
 
 Spacing on `Body` is harmless for the other page types: a Vertical Layout Group applies spacing only
 *between* children, and `GridPage`/`StackPage` are a single child.

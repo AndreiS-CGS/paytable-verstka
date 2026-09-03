@@ -415,17 +415,26 @@ Write the mapping to `_verstka/block_mapping.md`.
    - Per-paragraph overflow measurement tells you exactly where to cut, instead of "somewhere in
      this block".
 
-   **The paragraph gap now comes from `Body`'s `spacing`, which is 16.** It used to come from
+   **The paragraph gap comes from `Body`'s `spacing`, which is 60.** It used to come from
    `paragraphSpacing = 500` on the TMP component, which TMP applies only at a paragraph break
-   *inside* one text object — so with one paragraph per object that setting is inert and would have
-   left the paragraphs flush. `Body`'s Vertical Layout Group carries the 16 instead; nothing to set
-   per page.
+   *inside* one text object — so with one paragraph per object that setting is inert and would leave
+   the paragraphs flush.
 
-   16 is measured, not derived. On a real prefab, four `TextBlock`s with different line heights
-   (soft-wrap advances of 84.66 and 126.28) each showed a hard-break advance exactly 16.00 higher.
-   That also settles the arithmetic — `paragraphSpacing x fontSize x 0.01 x orthographicMultiplier`
-   with the multiplier at **0.1**, i.e. `500 x 32 x 0.001 = 16`. Do not re-derive it with the
-   multiplier at 1.0; that gives 160 and is wrong.
+   **60 replaces a whole line advance, not just the 16 that `paragraphSpacing` added.** Measuring
+   `paragraphSpacing`'s contribution gives 16 — the EXTRA that TMP puts at a hard newline on top of a
+   normal line advance — and using that is wrong, because between two paragraphs inside one object
+   there was also a full line advance, and splitting removes that too. The container has to replace
+   both, less the two objects' own ascender+descender:
+   `spacing = hardBreakAdvance − (asc+desc) = 100.66 − 42.24 ≈ 58`, rounded to **60**.
+
+   That correction came from measurement, not reasoning: a run with `spacing = 16` lost 96–312 units
+   of height per page. At 58 the residual was ±94 per page. If a page's height moves after a split,
+   this is the number to suspect.
+
+   **One value cannot match every page exactly**, because the advance it replaces scales with the
+   block's `line-height` — 100% on plain text, 180% where inline sprites raise the line box. 60 is
+   right for plain text and slightly tight where sprites are. Do not chase per-page exactness by
+   tuning `Body` per instance; that is the rule this library exists to keep.
 
    `Body`'s spacing is harmless on the other page types: a Vertical Layout Group applies spacing only
    *between* children, and a grid or stack page puts exactly one block in `Body`.
