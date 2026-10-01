@@ -9,6 +9,10 @@ flags.
 
 ## Getting set up
 
+> **Setting this up on your own machine for the first time? Read
+> [ONBOARDING.md](ONBOARDING.md) instead** — same ground, in order, with a check after each step and
+> the failures people actually hit. What follows here is the short version.
+
 1. Add the package to your Unity project's `Packages/manifest.json`:
    ```json
    "com.cgs.paytablelibrary": "https://github.com/AndreiS-CGS/paytable-verstka.git?path=library#main"
@@ -30,8 +34,9 @@ pass/fail: a probe that timed out or could not find its tool reports **Blocked**
 distinction is the point of the tool — the procedure it replaced kept reporting success nobody had
 verified.
 
-[SETUP.md](SETUP.md) covers the same ground for an agent doing it without the window, and documents
-the steps that stay manual.
+Three documents, three audiences: [ONBOARDING.md](ONBOARDING.md) for a person installing it,
+[SETUP.md](SETUP.md) for an agent installing it for someone else, and this file for what the thing
+is and how it is put together.
 
 ## Using it
 

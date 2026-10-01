@@ -6,6 +6,10 @@
 > output behind every row. Come back here for the steps it cannot do — those are marked **ASK** —
 > or when there is no working Unity project to open a window in.
 
+> If the human wants to do it themselves rather than have you do it, point them at
+> [ONBOARDING.md](ONBOARDING.md) — the same install written for a person, in order, with a check
+> after each step.
+
 You (the agent) are setting up the `paytable-verstka` pipeline on a new machine for a colleague.
 This is not documentation to summarize — follow it as an ordered checklist, asking the human only
 what's explicitly marked "ASK". Verify each step actually worked before moving to the next.
