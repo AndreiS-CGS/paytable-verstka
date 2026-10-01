@@ -262,8 +262,10 @@ Each phase writes an artifact under `_verstka/` so work survives context compact
    `SliderDialog` — see Phase 5 step 4). Note its
    possibly-stale filename as a curiosity, not a target — never open/edit/rename/delete it.
 4. Pick the matching shell: `Shells/PaytableDialog_{GEL,MCF}.prefab` from the block library package.
-5. **Unity availability gate.** If unityMCP is not connected, don't block the whole run — proceed
-   through Phases 1–4 (filesystem-only work), then stop before Phase 5/8 and report status.
+5. **Unity availability gate.** Unity is reachable through unityMCP OR the Unity CLI (`unity`
+   binary + `com.unity.pipeline` in the project — see "Driving Unity through the Unity CLI"). If
+   neither is, don't block the whole run — proceed through Phases 1–4 (filesystem-only work), then
+   stop before Phase 5/8 and report status.
 6. Plan to create the real output as a brand-new file: `PaytableDialog<CorrectGameName>.prefab`, next
    to (never overwriting) the existing donor file. Updating whatever config/reference should point at
    the new prefab is out of scope for this skill (frontend/build owns that).
@@ -448,7 +450,9 @@ Write the mapping to `_verstka/block_mapping.md`.
    row re-centres itself. Do not build rows by hand and do not use a `GridLayoutGroup` (with a fixed
    column cap it wraps the remainder onto its own row: 4-at-cap-3 gives 3+1, not 2+2).
    Each `GridCell` is already `IconSlot` over `PayRows` — vertical, symbol image on top. Assign the
-   hero symbol into `IconSlot` as an `Image` with its sliced sub-sprite, then fill `PayRows` via
+   hero symbol into `IconSlot` as an `Image` with its sliced sub-sprite **through
+   `CGS.PaytableLibrary.PaytableArt.Assign(image, sprite)`** — never `image.sprite = …` alone (see
+   Known gotchas: magenta tint), then fill `PayRows` via
    `CGS.PaytableLibrary.PaytablePayBlock` (`library/Editor/PaytablePayBlock.cs`):
    ```csharp
    countText.text = PaytablePayBlock.FormatCount(new[]{"5","4","3","2"});
@@ -786,9 +790,23 @@ it carries the real sizes and layout settings, read off the prefabs. Summary onl
   text layout so it cannot collapse at runtime; `Verify` is the gate that says whether it held. See
   Phase 7. Editor-only assembly, so nothing ships in the player.
 
+## Driving Unity through the Unity CLI
+An alternative to unityMCP — same C#, same rules (one call per prefab stage, Timeout ≠ failure).
+Requires the `unity` binary and `com.unity.pipeline` in the project (`unity pipeline install`);
+`unity pipeline list` shows whether the open Editor is reachable.
+- Put the C# in a file and run it with `eval_file` — no JSON-escaping of a whole build script.
+- **`eval_file`'s own timeout defaults to 5000 ms** and is a DIFFERENT flag from the CLI's
+  `--timeout` (seconds, HTTP wait). Pass the command's one after `--`, or anything longer than 5 s
+  "fails" while it keeps running in the Editor:
+  ```
+  unity command eval_file --timeout 200 --result-only -- --file build.cs --timeout 180000
+  ```
+- A domain reload drops the server for ~10 s; just retry — no reconnect needed.
+
 ## Known gotchas
 | Problem | Fix |
 |---|---|
+| Real art renders tinted magenta/red/black | Library placeholder `Image`s (`IconSlot`, `ImageContainer_N`, `ManualSlot`) carry a magenta TINT on the component, not only a placeholder sprite. Setting `.sprite` keeps it. Always go through `PaytableArt.Assign` (sprite + white + preserveAspect). No automated check sees this — only a render does. |
 | `execute_code` times out → assume failure | Timeout ≠ failure. Unity keeps executing C# after the MCP timeout; follow up with a diagnostic call before retrying. |
 | Retry after timeout → duplicate pages | Same instantiation code run twice = 2× pages. Detect via childCount, fix by deleting extras in reverse and re-indexing. |
 | Changes lost between execute_code calls | PrefabStage does not persist. One call: open, build, `SaveAsPrefabAsset`, THEN `GoToMainStage`. |
